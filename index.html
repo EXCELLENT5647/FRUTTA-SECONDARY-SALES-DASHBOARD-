@@ -366,17 +366,17 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
   </div>
   <div class="hdr-right">
     <span id="date-lbl"></span>
+    <button onclick="triggerAdmin()" style="background:transparent;border:none;color:transparent;font-size:8px;cursor:pointer;padding:4px;user-select:none" title="">●</button>
     <span id="file-chip" class="file-chip"></span>
     <span id="live-badge" style="display:none;align-items:center;gap:5px;background:rgba(0,229,160,.1);border:1px solid rgba(0,229,160,.35);border-radius:8px;padding:4px 10px;font-family:var(--fm);font-size:9px;color:var(--grn);letter-spacing:.5px">
       <span style="width:6px;height:6px;border-radius:50%;background:var(--grn);display:inline-block;box-shadow:0 0 6px var(--grn)"></span>
       LIVE <span id="live-date" style="opacity:.7;margin-left:3px"></span>
     </span>
     <button class="mode-btn" id="theme-btn" onclick="toggleTheme()">☀️ LIGHT</button>
-    <button class="share-btn" onclick="openShare()">🔗 SHARE</button>
     <!-- admin-only controls, hidden for viewers -->
-    <button class="upload-btn" id="upload-btn" onclick="document.getElementById('hfi').click()">⬆ Upload Report</button>
-    <button class="upload-btn" id="publish-btn" style="background:linear-gradient(135deg,var(--grn2),var(--grn));color:#030f08" onclick="publishData()">🚀 Publish Live</button>
-    <button class="mode-btn" id="admin-gear" onclick="openSetup()">⚙️ Setup</button>
+    <button class="upload-btn" id="upload-btn" style="display:none" onclick="document.getElementById('hfi').click()">⬆ Upload Report</button>
+    <button class="upload-btn" id="publish-btn" style="display:none;background:linear-gradient(135deg,var(--grn2),var(--grn));color:#030f08" onclick="publishData()">🚀 Publish Live</button>
+    <button class="mode-btn" id="admin-gear" style="display:none" onclick="openSetup()">⚙️ Setup</button>
     <input type="file" id="hfi" accept=".xlsx,.xls" style="display:none" onchange="handleFile(this.files[0])">
   </div>
 </header>
@@ -2535,8 +2535,21 @@ function ghCfg(){
 }
 function ghSave(cfg){ localStorage.setItem('gh_cfg',JSON.stringify(cfg)); }
 
-/* Admin controls always visible — no shortcut needed */
-let _adminActive=true;
+/* ── Admin trigger — tiny invisible button in header ── */
+let _adminActive=false;
+function triggerAdmin(){
+  if(_adminActive) return;
+  const pw=prompt('Admin password:');
+  if(pw==='frutta2026') enableAdmin();
+}
+function enableAdmin(){
+  _adminActive=true;
+  document.getElementById('upload-btn').style.display='';
+  document.getElementById('publish-btn').style.display='';
+  document.getElementById('admin-gear').style.display='';
+  toast('🔑 Admin mode activated');
+  loadLiveData(true);
+}
 
 function openSetup(){
   const cfg=ghCfg();
@@ -2637,6 +2650,7 @@ async function loadLiveData(silent){
     const json=await r.json();
     if(json&&json.data){
       D=json.data;
+      buildASMBar();
       renderAll();
       showLiveBadge(json.publishedAt||null);
       if(!silent) toast('📡 Live data loaded');
