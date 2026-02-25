@@ -2624,13 +2624,15 @@ function showLiveBadge(isoDate){
 }
 
 /* ── Load live data from GitHub on page open (viewer mode) ── */
+/* Hardcoded public URL so ALL viewers auto-load data, not just admin */
+const GITHUB_USER = 'excellent5647';
+const GITHUB_REPO = 'FRUTTA-SECONDARY-SALES-DASHBOARD-';
+
 async function loadLiveData(silent){
-  const cfg=ghCfg();
-  if(!cfg.user||!cfg.repo) return; // not configured yet
+  // Try hardcoded public URL first (works for all viewers)
+  const publicUrl = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data.json?_=${Date.now()}`;
   try{
-    const r=await fetch(
-      `https://raw.githubusercontent.com/${cfg.user}/${cfg.repo}/main/data.json?_=${Date.now()}`
-    );
+    const r=await fetch(publicUrl);
     if(!r.ok) return;
     const json=await r.json();
     if(json&&json.data){
