@@ -372,10 +372,9 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
       LIVE <span id="live-date" style="opacity:.7;margin-left:3px"></span>
     </span>
     <button class="mode-btn" id="theme-btn" onclick="toggleTheme()">☀️ LIGHT</button>
+    <button class="mode-btn" id="asm-hdr-btn" style="display:none;border-color:rgba(0,229,160,.35);color:var(--grn)" onclick="toggleASMBar()">👤 ASM FILTER</button>
     <!-- admin-only controls, hidden for viewers -->
-    <button class="upload-btn" id="upload-btn" style="display:none" onclick="document.getElementById('hfi').click()">⬆ Upload Report</button>
-    <button class="upload-btn" id="publish-btn" style="display:none;background:linear-gradient(135deg,var(--grn2),var(--grn));color:#030f08" onclick="publishData()">🚀 Publish Live</button>
-    <button class="mode-btn" id="admin-gear" style="display:none" onclick="openSetup()">⚙️ Setup</button>
+    <button class="upload-btn" id="upload-btn" onclick="document.getElementById('hfi').click()">⬆ Upload Report</button>
     <input type="file" id="hfi" accept=".xlsx,.xls" style="display:none" onchange="handleFile(this.files[0])">
   </div>
 </header>
@@ -768,7 +767,7 @@ function normRgn(raw){
 /* ═══════════════════════════ UI CONTROLS ════════════════════ */
 function toggleMode(){
   viewerMode=!viewerMode;
-  document.getElementById('upload-btn').style.display=viewerMode?'none':'';
+  // upload-btn moved to floating bar
   document.getElementById('upl-tab').style.display=viewerMode?'none':'';
   document.getElementById('mode-btn').textContent=viewerMode?'🔑 ADMIN MODE':'👁 VIEWER MODE';
   if(viewerMode&&document.getElementById('view-upl').classList.contains('active'))
@@ -850,6 +849,7 @@ function buildASMBar(){
   document.getElementById('asm-count').textContent=asms.length+' ASMs';
   document.getElementById('fbar').classList.add('on');
   document.getElementById('nav').classList.add('shifted');
+  document.getElementById('asm-hdr-btn').style.display='';
 }
 
 function pickASMDrop(name){
@@ -864,6 +864,22 @@ function pickASMDrop(name){
 function pickASM(name){ // keep alias
   document.getElementById('asm-select').value=name;
   pickASMDrop(name);
+}
+
+function toggleASMBar(){
+  const fbar=document.getElementById('fbar');
+  const isOn=fbar.classList.contains('on');
+  if(isOn){
+    fbar.classList.remove('on');
+    document.getElementById('nav').classList.remove('shifted');
+    document.getElementById('asm-hdr-btn').style.borderColor='';
+    document.getElementById('asm-hdr-btn').style.color='';
+  } else {
+    fbar.classList.add('on');
+    document.getElementById('nav').classList.add('shifted');
+    document.getElementById('asm-hdr-btn').style.borderColor='rgba(0,229,160,.6)';
+    document.getElementById('asm-hdr-btn').style.color='var(--grn)';
+  }
 }
 
 function clearASM(){
@@ -2543,9 +2559,9 @@ function triggerAdmin(){
 }
 function enableAdmin(){
   _adminActive=true;
-  document.getElementById('upload-btn').style.display='';
-  document.getElementById('publish-btn').style.display='';
-  document.getElementById('admin-gear').style.display='';
+  // upload-btn moved to floating bar
+  // publish-btn in floating bar
+  // admin-gear in floating bar
   toast('🔑 Admin mode activated');
   loadLiveData(true);
 }
@@ -2667,5 +2683,13 @@ function toast(msg){
   clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('on'),3500);
 }
 </script>
+
+<!-- ═══════════ FLOATING ADMIN BAR ═══════════ -->
+<div id="admin-float" style="position:fixed;bottom:20px;right:20px;z-index:500;display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+  <div style="display:flex;gap:6px">
+    <button id="publish-btn" onclick="publishData()" style="padding:6px 12px;background:rgba(0,229,160,.12);border:1px solid rgba(0,229,160,.25);color:var(--grn);border-radius:8px;font-family:var(--fm);font-size:9px;letter-spacing:1px;cursor:pointer;opacity:.5;transition:opacity .2s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.5">🚀 PUBLISH</button>
+    <button id="admin-gear" onclick="openSetup()" style="padding:6px 12px;background:rgba(255,255,255,.04);border:1px solid var(--bdr);color:var(--dim);border-radius:8px;font-family:var(--fm);font-size:9px;letter-spacing:1px;cursor:pointer;opacity:.5;transition:opacity .2s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.5">⚙️</button>
+  </div>
+</div>
 </body>
 </html>
