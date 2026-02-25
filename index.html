@@ -374,9 +374,9 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
     <button class="mode-btn" id="theme-btn" onclick="toggleTheme()">☀️ LIGHT</button>
     <button class="share-btn" onclick="openShare()">🔗 SHARE</button>
     <!-- admin-only controls, hidden for viewers -->
-    <button class="upload-btn" id="upload-btn" style="display:none" onclick="document.getElementById('hfi').click()">⬆ Upload Report</button>
-    <button class="upload-btn" id="publish-btn" style="display:none;background:linear-gradient(135deg,var(--grn2),var(--grn));color:#030f08" onclick="publishData()">🚀 Publish Live</button>
-    <button class="mode-btn" id="admin-gear" style="display:none" onclick="openSetup()">⚙️ Setup</button>
+    <button class="upload-btn" id="upload-btn" onclick="document.getElementById('hfi').click()">⬆ Upload Report</button>
+    <button class="upload-btn" id="publish-btn" style="background:linear-gradient(135deg,var(--grn2),var(--grn));color:#030f08" onclick="publishData()">🚀 Publish Live</button>
+    <button class="mode-btn" id="admin-gear" onclick="openSetup()">⚙️ Setup</button>
     <input type="file" id="hfi" accept=".xlsx,.xls" style="display:none" onchange="handleFile(this.files[0])">
   </div>
 </header>
@@ -2535,27 +2535,8 @@ function ghCfg(){
 }
 function ghSave(cfg){ localStorage.setItem('gh_cfg',JSON.stringify(cfg)); }
 
-/* ── Keyboard shortcut: Ctrl+Shift+A → password → admin ── */
-(function(){
-  let buf='';
-  document.addEventListener('keydown',function(e){
-    if(e.ctrlKey&&e.shiftKey&&e.key==='A'){
-      const pw=prompt('Admin password:');
-      if(pw==='frutta2026') enableAdmin();
-    }
-  });
-})();
-
-let _adminActive=false;
-function enableAdmin(){
-  _adminActive=true;
-  document.getElementById('upload-btn').style.display='';
-  document.getElementById('publish-btn').style.display='';
-  document.getElementById('admin-gear').style.display='';
-  toast('🔑 Admin mode activated');
-  // Auto-load data.json from GitHub so admin can see current live state
-  loadLiveData(true);
-}
+/* Admin controls always visible — no shortcut needed */
+let _adminActive=true;
 
 function openSetup(){
   const cfg=ghCfg();
