@@ -2609,26 +2609,60 @@ async function confirmPublish(){
   const cfg=ghCfg();
   const btn=document.getElementById('pub-confirm-btn');
   const st=document.getElementById('pub-status');
+  if(!cfg.token||!cfg.user||!cfg.repo){
+    st.style.color='var(--red)';
+    st.textContent='❌ Not configured — click ⚙️ Setup first';
+    return;
+  }
+  if(!D){
+    st.style.color='var(--red)';
+    st.textContent='❌ No data loaded — upload your Excel first';
+    return;
+  }
   btn.disabled=true; btn.textContent='Publishing…'; st.textContent='';
   try{
     const payload={data:D, publishedAt:new Date().toISOString()};
-    const content=btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    let jsonStr;
+    try{ jsonStr=JSON.stringify(payload); }
+    catch(e){ throw new Error('Data serialization failed: '+e.message); }
+    // Encode safely
+    const content=btoa(unescape(encodeURIComponent(jsonStr)));
     // Get current SHA (needed for update)
     let sha=null;
+    st.style.color='var(--dim)'; st.textContent='Checking existing file…';
     const existR=await fetch(
       `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json`,
       {headers:{'Authorization':'token '+cfg.token,'Accept':'application/vnd.github.v3+json'}}
     );
-    if(existR.ok){ const j=await existR.json(); sha=j.sha; }
+    if(existR.ok){
+      const j=await existR.json(); sha=j.sha;
+    } else if(existR.status===401){
+      throw new Error('Token invalid or expired — go to ⚙️ Setup and enter a new token');
+    } else if(existR.status===404){
+      // file doesn't exist yet — that's fine, we'll create it
+    } else {
+      throw new Error('GitHub error '+existR.status+' checking file');
+    }
     // PUT file
+    st.textContent='Uploading to GitHub…';
     const body={message:'📊 Publish dashboard data',content};
     if(sha) body.sha=sha;
     const putR=await fetch(
       `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json`,
-      {method:'PUT',headers:{'Authorization':'token '+cfg.token,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},
+      {method:'PUT',
+       headers:{'Authorization':'token '+cfg.token,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},
        body:JSON.stringify(body)}
     );
-    if(!putR.ok) throw new Error('HTTP '+putR.status);
+    if(!putR.ok){
+      const errJ=await putR.json().catch(()=>({}));
+      const msg=errJ.message||('HTTP '+putR.status);
+      if(putR.status===401) throw new Error('Token invalid — create a new one in ⚙️ Setup');
+      if(putR.status===403) throw new Error('Token has no write permission — recreate with Contents: Read & Write');
+      if(putR.status===404) throw new Error('Repo not found — check username and repo name in ⚙️ Setup');
+      if(putR.status===409) throw new Error('Conflict — try again');
+      if(putR.status===422) throw new Error('SHA mismatch — try again');
+      throw new Error(msg);
+    }
     st.style.color='var(--grn)'; st.textContent='✅ Published!';
     btn.textContent='DONE ✓';
     showLiveBadge(new Date().toISOString());
