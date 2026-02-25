@@ -1,0 +1,2488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frutta | Secondary Sales Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<style>
+/* ═══════════════ DESIGN TOKENS ═══════════════ */
+:root{
+  --bg:#05070a;--s1:#0d1218;--s2:#121a23;--s3:#172030;--bdr:#1c2e44;
+  --grn:#00e5a0;--grn2:#00b87d;--grn3:#00ffc2;--grnd:rgba(0,229,160,.08);
+  --amb:#f5a623;--ambd:rgba(245,166,35,.08);--red:#ff4757;--redb:rgba(255,71,87,.08);
+  --blu:#3d9eff;--blub:rgba(61,158,255,.08);--pur:#a259ff;--purb:rgba(162,89,255,.08);
+  --txt:#dff0e8;--dim:#4d7a68;--dim2:#2d5040;
+  --fn:'DM Serif Display',serif;--fb:'DM Sans',sans-serif;--fm:'DM Mono',monospace;
+  --grid-line:rgba(0,229,160,.018);
+  --hdr-bg:rgba(5,7,10,.96);
+  --nav-bg:rgba(10,15,22,.97);
+  --fbar-bg:rgba(7,11,17,.97);
+  --glow-grn:0 0 24px rgba(0,229,160,.12);
+  --glow-amb:0 0 24px rgba(245,166,35,.12);
+  --glow-red:0 0 24px rgba(255,71,87,.12);
+  --r:16px;--r-sm:10px;
+}
+body.light-mode{
+  --bg:#eef3f0;--s1:#ffffff;--s2:#e4ede8;--s3:#d8e6de;--bdr:#b8d4c4;
+  --grn:#008f5e;--grn2:#006e49;--grn3:#00b87d;--grnd:rgba(0,143,94,.08);
+  --amb:#b06a00;--ambd:rgba(176,106,0,.08);--red:#cc1e2e;--redb:rgba(204,30,46,.07);
+  --blu:#1567b8;--blub:rgba(21,103,184,.08);--pur:#6b28d4;--purb:rgba(107,40,212,.08);
+  --txt:#0a1e14;--dim:#4a7060;--dim2:#8bb09a;
+  --grid-line:rgba(0,143,94,.035);
+  --hdr-bg:rgba(238,243,240,.96);--nav-bg:rgba(248,252,250,.97);--fbar-bg:rgba(244,249,246,.97);
+  --glow-grn:0 2px 12px rgba(0,143,94,.1);--glow-amb:0 2px 12px rgba(176,106,0,.1);--glow-red:0 2px 12px rgba(204,30,46,.1);
+}
+
+/* ═══════════════ RESET & BASE ═══════════════ */
+*{box-sizing:border-box;margin:0;padding:0;}
+*,*::before,*::after{transition:background-color .22s ease,border-color .22s ease,color .22s ease,box-shadow .22s ease;}
+body{background:var(--bg);color:var(--txt);font-family:var(--fb);min-height:100vh;overflow-x:hidden;-webkit-font-smoothing:antialiased;}
+
+/* Dot-grid background */
+body::before{content:'';position:fixed;inset:0;z-index:0;
+  background-image:radial-gradient(circle,rgba(0,229,160,.12) 1px,transparent 1px);
+  background-size:32px 32px;pointer-events:none;opacity:.6;}
+/* Ambient glow blobs */
+body::after{content:'';position:fixed;inset:0;z-index:0;
+  background:
+    radial-gradient(ellipse 70% 45% at 10% 5%,rgba(0,229,160,.055) 0%,transparent 65%),
+    radial-gradient(ellipse 50% 60% at 90% 95%,rgba(61,158,255,.045) 0%,transparent 65%),
+    radial-gradient(ellipse 40% 40% at 80% 10%,rgba(162,89,255,.03) 0%,transparent 60%);
+  pointer-events:none;}
+body.light-mode::after{background:
+  radial-gradient(ellipse 70% 45% at 10% 5%,rgba(0,143,94,.04) 0%,transparent 65%),
+  radial-gradient(ellipse 50% 60% at 90% 95%,rgba(21,103,184,.035) 0%,transparent 65%);}
+
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:10px;}
+::-webkit-scrollbar-thumb:hover{background:var(--dim);}
+
+/* ═══════════════ HEADER ═══════════════ */
+header{
+  position:sticky;top:0;z-index:300;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 32px;height:64px;
+  background:var(--hdr-bg);
+  border-bottom:1px solid var(--bdr);
+  backdrop-filter:blur(16px) saturate(180%);
+}
+.logo{display:flex;align-items:center;gap:14px;}
+.logo-icon{
+  width:38px;height:38px;
+  background:linear-gradient(135deg,var(--grn3),var(--grn2));
+  border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--fn);font-size:19px;font-weight:800;color:#030f08;
+  box-shadow:0 0 20px rgba(0,229,160,.35),inset 0 1px 0 rgba(255,255,255,.2);
+}
+.logo-text{font-family:var(--fn);font-size:21px;font-weight:800;letter-spacing:2px;
+  background:linear-gradient(90deg,var(--txt),var(--grn));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.logo-sub{font-size:9px;letter-spacing:3px;color:var(--dim);text-transform:uppercase;margin-top:-3px;}
+.hdr-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+#date-lbl{font-family:var(--fm);font-size:10px;color:var(--dim);letter-spacing:.5px;}
+.file-chip{
+  background:var(--grnd);border:1px solid rgba(0,229,160,.3);border-radius:8px;
+  padding:4px 12px;font-family:var(--fm);font-size:10px;color:var(--grn);display:none;
+  box-shadow:0 0 10px rgba(0,229,160,.08);}
+.mode-btn{
+  padding:6px 12px;background:transparent;border:1px solid var(--bdr);
+  color:var(--dim);border-radius:8px;font-family:var(--fm);font-size:9px;
+  cursor:pointer;letter-spacing:1px;}
+.mode-btn:hover{border-color:var(--grn2);color:var(--grn);background:var(--grnd);}
+.share-btn{
+  padding:6px 12px;background:var(--purb);border:1px solid rgba(162,89,255,.35);
+  color:var(--pur);border-radius:8px;font-family:var(--fm);font-size:9px;
+  cursor:pointer;letter-spacing:1px;}
+.share-btn:hover{border-color:var(--pur);background:rgba(162,89,255,.18);}
+.upload-btn{
+  padding:8px 18px;
+  background:linear-gradient(135deg,var(--grn3),var(--grn2));
+  color:#030f08;border:none;border-radius:9px;
+  font-family:var(--fn);font-size:12px;font-weight:800;letter-spacing:1px;
+  cursor:pointer;
+  box-shadow:0 0 18px rgba(0,229,160,.3),inset 0 1px 0 rgba(255,255,255,.25);}
+.upload-btn:hover{box-shadow:0 0 28px rgba(0,229,160,.45),inset 0 1px 0 rgba(255,255,255,.25);transform:translateY(-1px);}
+.upload-btn:disabled{background:var(--s2);color:var(--dim);cursor:default;box-shadow:none;transform:none;}
+
+/* ═══════════════ ASM FILTER BAR ═══════════════ */
+.fbar{
+  position:sticky;top:64px;z-index:200;
+  background:var(--fbar-bg);border-bottom:1px solid var(--bdr);
+  padding:0 32px;height:52px;display:none;align-items:center;gap:16px;
+  backdrop-filter:blur(12px);}
+.fbar.on{display:flex;}
+.fbar-lbl{font-family:var(--fm);font-size:9px;letter-spacing:2px;color:var(--dim);white-space:nowrap;text-transform:uppercase;}
+.asm-select-wrap{position:relative;display:flex;align-items:center;}
+.asm-select-wrap::after{content:'▾';position:absolute;right:13px;color:var(--grn);font-size:12px;pointer-events:none;}
+#asm-select{
+  appearance:none;-webkit-appearance:none;
+  background:var(--s2);border:1px solid var(--bdr);border-radius:9px;
+  padding:7px 36px 7px 14px;font-family:var(--fm);font-size:11px;color:var(--txt);
+  cursor:pointer;min-width:210px;outline:none;font-weight:700;}
+#asm-select:hover,#asm-select:focus{border-color:var(--grn2);box-shadow:0 0 0 3px rgba(0,229,160,.08);}
+#asm-select option{background:var(--s1);color:var(--txt);}
+#asm-select.active{border-color:var(--grn);background:var(--grnd);color:var(--grn);box-shadow:0 0 12px rgba(0,229,160,.15);}
+.asm-count{font-family:var(--fm);font-size:9px;color:var(--dim);white-space:nowrap;font-weight:700;}
+#fclear{
+  padding:5px 13px;border-radius:7px;border:1px solid rgba(255,71,87,.5);
+  background:var(--redb);color:var(--red);font-family:var(--fm);font-size:9px;
+  cursor:pointer;white-space:nowrap;display:none;letter-spacing:1px;font-weight:700;}
+#fclear:hover{background:rgba(255,71,87,.18);border-color:var(--red);}
+
+/* ═══════════════ NAV ═══════════════ */
+nav{
+  position:sticky;top:64px;z-index:100;
+  display:flex;border-bottom:1px solid var(--bdr);
+  background:var(--nav-bg);padding:0 32px;
+  overflow-x:auto;backdrop-filter:blur(12px);transition:top .2s;}
+nav.shifted{top:116px;}
+nav::-webkit-scrollbar{height:2px;}
+.ntab{
+  padding:0 20px;height:48px;
+  font-family:var(--fn);font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;
+  color:var(--dim);cursor:pointer;border:none;background:none;
+  border-bottom:2px solid transparent;white-space:nowrap;
+  display:flex;align-items:center;gap:8px;transition:color .2s,border-color .2s;}
+.ntab:hover{color:var(--txt);}
+.ntab.active{color:var(--grn);border-bottom-color:var(--grn);text-shadow:0 0 12px rgba(0,229,160,.4);}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.35;transition:opacity .2s;}
+.ntab.active .dot{opacity:1;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.7);opacity:.45;}}
+
+/* ═══════════════ MAIN ═══════════════ */
+main{position:relative;z-index:5;padding:28px 32px;max-width:1640px;margin:0 auto;}
+.view{display:none;}.view.active{display:block;animation:fadeUp .32s cubic-bezier(.22,1,.36,1);}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+
+/* ═══════════════ SECTION HEADER ═══════════════ */
+.sh{display:flex;align-items:center;gap:12px;margin-bottom:26px;flex-wrap:wrap;}
+.sh-title{
+  font-family:var(--fn);font-size:30px;font-weight:800;letter-spacing:1px;line-height:1;
+  background:linear-gradient(135deg,var(--txt) 60%,var(--grn));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.badge{font-family:var(--fm);font-size:9px;letter-spacing:2px;padding:4px 12px;border-radius:20px;border:1px solid;font-weight:700;}
+.b-grn{color:var(--grn);background:var(--grnd);border-color:rgba(0,229,160,.3);}
+.b-amb{color:var(--amb);background:var(--ambd);border-color:rgba(245,166,35,.3);}
+.b-asm{color:var(--pur);background:var(--purb);border-color:rgba(162,89,255,.35);font-size:10px;}
+.sh-meta{font-size:11px;color:var(--dim);margin-left:auto;font-family:var(--fm);font-weight:700;}
+
+/* ═══════════════ KPI CARDS ═══════════════ */
+.kg{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:14px;margin-bottom:26px;}
+.kc{
+  background:var(--s1);border:1px solid var(--bdr);border-radius:var(--r);
+  padding:20px 22px;position:relative;overflow:hidden;
+  cursor:default;
+  box-shadow:0 2px 16px rgba(0,0,0,.25);}
+.kc::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--acc,var(--grn)) 0%,rgba(0,229,160,.0) 100%);}
+.kc::after{
+  content:'';position:absolute;top:0;left:0;bottom:0;width:3px;
+  background:linear-gradient(180deg,var(--acc,var(--grn)),transparent);
+  opacity:.6;}
+.kc:hover{
+  border-color:var(--grn2);transform:translateY(-3px);
+  box-shadow:0 8px 32px rgba(0,0,0,.3),var(--glow-grn);}
+.kc.a{--acc:var(--amb)}.kc.a:hover{box-shadow:0 8px 32px rgba(0,0,0,.3),var(--glow-amb);}
+.kc.b{--acc:var(--blu)}.kc.b:hover{border-color:var(--blu);}
+.kc.p{--acc:var(--pur)}.kc.p:hover{border-color:var(--pur);}
+.kc.r{--acc:var(--red)}.kc.r:hover{border-color:var(--red);box-shadow:0 8px 32px rgba(0,0,0,.3),var(--glow-red);}
+.kc-lbl{font-size:9px;letter-spacing:2.5px;text-transform:uppercase;color:var(--dim);margin-bottom:10px;font-family:var(--fm);font-weight:700;}
+.kc-val{font-family:var(--fn);font-size:28px;font-weight:800;line-height:1;letter-spacing:-1px;}
+.kc-sub{font-size:10px;color:var(--dim);margin-top:7px;font-family:var(--fm);font-weight:700;letter-spacing:.3px;}
+.c-g{color:var(--grn)}.c-a{color:var(--amb)}.c-b{color:var(--blu)}.c-p{color:var(--pur)}.c-r{color:var(--red)}
+
+/* ═══════════════ CHART CONTAINERS ═══════════════ */
+.cg{display:grid;gap:16px;margin-bottom:26px;}
+.g2{grid-template-columns:1fr 1fr;}.g3{grid-template-columns:1fr 1fr 1fr;}
+@media(max-width:1050px){.g2,.g3{grid-template-columns:1fr}}
+.cc{
+  background:var(--s1);border:1px solid var(--bdr);border-radius:var(--r);
+  padding:22px;
+  box-shadow:0 2px 16px rgba(0,0,0,.2);}
+.cc-ttl{
+  font-family:var(--fn);font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;
+  color:var(--dim);margin-bottom:16px;display:flex;align-items:center;gap:8px;}
+.cc-ttl .d{color:var(--grn);font-size:14px;}
+.cw{position:relative;height:220px;}.cw.tall{height:300px;}
+
+/* ═══════════════ TABLES ═══════════════ */
+.tb{background:var(--s1);border:1px solid var(--bdr);border-radius:var(--r);overflow:hidden;margin-bottom:26px;box-shadow:0 2px 16px rgba(0,0,0,.2);}
+.tb-hd{
+  padding:15px 20px 12px;border-bottom:1px solid var(--bdr);
+  font-family:var(--fn);font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;
+  color:var(--dim);display:flex;align-items:center;gap:10px;
+  background:linear-gradient(90deg,rgba(0,229,160,.025),transparent);}
+.tb-cnt{font-family:var(--fm);font-size:10px;color:var(--grn);margin-left:auto;font-weight:700;}
+table{width:100%;border-collapse:collapse;}
+thead tr{background:var(--s2);}
+th{
+  text-align:left;padding:10px 14px;
+  font-family:var(--fm);font-size:9px;letter-spacing:2px;text-transform:uppercase;
+  color:var(--dim);border-bottom:1px solid var(--bdr);white-space:nowrap;font-weight:700;}
+td{padding:11px 14px;border-bottom:1px solid rgba(28,46,68,.7);font-size:12px;color:var(--txt);font-family:var(--fm);font-weight:700;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:rgba(0,229,160,.03);}
+.td-nm{font-family:var(--fb);font-size:13px;font-weight:600;color:var(--txt);}
+.td-asm{font-family:var(--fb);font-size:11px;color:var(--pur);font-weight:600;}
+
+/* ═══════════════ MISC COMPONENTS ═══════════════ */
+.prog{display:flex;align-items:center;gap:8px;}
+.prog-track{flex:1;height:5px;background:var(--s3);border-radius:4px;overflow:hidden;min-width:50px;}
+.prog-fill{height:100%;border-radius:4px;transition:width .6s cubic-bezier(.22,1,.36,1);}
+.prog-v{font-size:10px;min-width:38px;text-align:right;font-family:var(--fm);font-weight:700;}
+.cbadge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-family:var(--fm);font-size:10px;font-weight:700;}
+.cg-ok{background:var(--grnd);color:var(--grn);border:1px solid rgba(0,229,160,.3);}
+.cg-md{background:var(--ambd);color:var(--amb);border:1px solid rgba(245,166,35,.3);}
+.cg-lo{background:var(--redb);color:var(--red);border:1px solid rgba(255,71,87,.3);}
+.banner{
+  background:linear-gradient(135deg,rgba(245,166,35,.07),rgba(245,166,35,.03));
+  border:1px solid rgba(245,166,35,.25);border-radius:var(--r);
+  padding:20px 26px;margin-bottom:26px;display:flex;align-items:center;gap:16px;
+  box-shadow:var(--glow-amb);}
+.banner h3{font-family:var(--fn);font-size:18px;font-weight:800;color:var(--amb);}
+.banner p{font-size:12px;color:rgba(245,166,35,.6);margin-top:4px;font-family:var(--fm);font-weight:700;}
+.tcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:12px;margin-bottom:26px;}
+.tcard{background:var(--s2);border:1px solid var(--bdr);border-radius:var(--r-sm);padding:15px;transition:border-color .2s,transform .2s;}
+.tcard:hover{border-color:var(--grn2);transform:translateY(-2px);}
+.empty{text-align:center;padding:90px 30px;}
+.empty .ico{font-size:56px;margin-bottom:18px;filter:grayscale(.7);display:block;}
+.empty h3{font-size:22px;color:var(--dim);margin-bottom:10px;font-family:var(--fn);font-weight:800;}
+.empty p{font-size:13px;color:var(--dim2);font-family:var(--fm);}
+.drop-zone{
+  border:2px dashed var(--bdr);border-radius:var(--r);
+  padding:56px 40px;text-align:center;cursor:pointer;
+  background:var(--s1);transition:all .3s;}
+.drop-zone:hover,.drop-zone.drag{border-color:var(--grn);background:rgba(0,229,160,.03);box-shadow:var(--glow-grn);}
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;justify-content:center;}
+.pill{background:var(--grnd);border:1px solid rgba(0,229,160,.25);border-radius:8px;padding:4px 13px;font-family:var(--fm);font-size:10px;color:var(--grn);font-weight:700;}
+
+/* ═══════════════ SHARE MODAL ═══════════════ */
+.modal-bg{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;backdrop-filter:blur(8px);}
+.modal-bg.on{display:flex;}
+.modal{
+  background:var(--s1);border:1px solid rgba(162,89,255,.3);border-radius:20px;
+  padding:36px;max-width:540px;width:90%;position:relative;
+  box-shadow:0 24px 80px rgba(0,0,0,.5),0 0 60px rgba(162,89,255,.08);}
+.modal-close{position:absolute;top:18px;right:18px;background:none;border:none;color:var(--dim);font-size:20px;cursor:pointer;line-height:1;transition:color .2s;}
+.modal-close:hover{color:var(--txt);}
+.modal h2{font-family:var(--fn);font-size:26px;font-weight:800;color:var(--pur);margin-bottom:6px;}
+.modal-sub{font-size:12px;color:var(--dim);font-family:var(--fm);margin-bottom:26px;font-weight:700;letter-spacing:.5px;}
+.step{display:flex;gap:15px;margin-bottom:20px;align-items:flex-start;}
+.step-num{min-width:30px;height:30px;border-radius:50%;background:var(--purb);border:1px solid rgba(162,89,255,.4);color:var(--pur);font-family:var(--fn);font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;}
+.step-body{flex:1;}
+.step-title{font-family:var(--fn);font-size:14px;font-weight:700;color:var(--txt);margin-bottom:4px;}
+.step-desc{font-size:12px;color:var(--dim);line-height:1.75;font-family:var(--fb);}
+.step-desc a{color:var(--grn);text-decoration:none;font-weight:700;}
+.step-desc a:hover{text-decoration:underline;}
+.copy-row{display:flex;gap:8px;margin-top:10px;}
+.copy-input{flex:1;background:var(--bg);border:1px solid var(--bdr);border-radius:8px;padding:9px 13px;font-family:var(--fm);font-size:11px;color:var(--txt);font-weight:700;}
+.copy-btn{padding:9px 16px;background:var(--pur);color:#fff;border:none;border-radius:8px;font-family:var(--fn);font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;transition:opacity .2s;}
+.copy-btn:hover{opacity:.8;}
+.modal-tip{background:rgba(0,229,160,.04);border:1px solid rgba(0,229,160,.15);border-radius:10px;padding:14px 18px;margin-top:22px;font-family:var(--fm);font-size:11px;color:var(--grn);line-height:1.8;font-weight:700;}
+
+/* ═══════════════ TOAST ═══════════════ */
+#toast{
+  position:fixed;bottom:24px;right:24px;z-index:9999;
+  background:linear-gradient(135deg,var(--grn3),var(--grn2));
+  color:#030f08;font-family:var(--fn);font-size:13px;font-weight:800;
+  padding:12px 22px;border-radius:12px;
+  opacity:0;transform:translateY(12px) scale(.96);
+  transition:all .3s cubic-bezier(.22,1,.36,1);pointer-events:none;
+  box-shadow:0 8px 36px rgba(0,229,160,.4);}
+#toast.on{opacity:1;transform:translateY(0) scale(1);}
+
+/* ═══════════════ TOP / BOTTOM REP CARDS ═══════════════ */
+.perf-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:26px;}
+@media(max-width:820px){.perf-grid{grid-template-columns:1fr;}}
+.perf-panel{
+  background:var(--s1);border:1px solid var(--bdr);border-radius:var(--r);overflow:hidden;
+  box-shadow:0 2px 16px rgba(0,0,0,.2);}
+.perf-panel-hd{
+  padding:14px 20px 11px;border-bottom:1px solid var(--bdr);
+  display:flex;align-items:center;gap:10px;
+  font-family:var(--fn);font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;
+  background:linear-gradient(90deg,rgba(0,229,160,.03),transparent);}
+.perf-row{
+  display:flex;align-items:center;gap:14px;padding:13px 18px;
+  border-bottom:1px solid rgba(28,46,68,.5);
+  transition:background .15s;}
+.perf-row:last-child{border-bottom:none;}
+.perf-row:hover{background:rgba(0,229,160,.025);}
+.perf-rank{font-family:var(--fn);font-size:24px;font-weight:800;min-width:34px;text-align:center;}
+.perf-info{flex:1;min-width:0;}
+.perf-name{font-family:var(--fb);font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.perf-meta{font-family:var(--fm);font-size:9px;color:var(--dim);margin-top:3px;font-weight:700;letter-spacing:.3px;}
+.perf-rev{font-family:var(--fn);font-size:17px;font-weight:800;text-align:right;}
+.perf-cases{font-family:var(--fm);font-size:9px;color:var(--dim);text-align:right;margin-top:3px;font-weight:700;}
+
+/* ═══════════════ ASM FLAG PANELS ═══════════════ */
+.asm-flag-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:16px;margin-bottom:26px;}
+.asm-flag-panel{
+  background:var(--s1);border:1px solid rgba(255,71,87,.25);border-radius:var(--r);overflow:hidden;position:relative;
+  box-shadow:0 2px 16px rgba(0,0,0,.2),var(--glow-red);}
+.asm-flag-panel::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--red),rgba(255,71,87,0));}
+.asm-flag-hd{padding:13px 18px 10px;border-bottom:1px solid rgba(255,71,87,.12);display:flex;align-items:center;gap:9px;}
+.asm-flag-region{font-family:var(--fn);font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;}
+.asm-flag-tag{font-family:var(--fm);font-size:8px;letter-spacing:1px;padding:3px 9px;border-radius:20px;background:var(--redb);color:var(--red);border:1px solid rgba(255,71,87,.3);margin-left:auto;font-weight:700;}
+.asm-flag-row{display:flex;align-items:center;gap:11px;padding:10px 18px;border-bottom:1px solid rgba(28,46,68,.4);transition:background .15s;}
+.asm-flag-row:last-child{border-bottom:none;}
+.asm-flag-row:hover{background:rgba(255,71,87,.03);}
+.asm-flag-pos{font-family:var(--fn);font-size:13px;font-weight:800;color:var(--red);min-width:22px;}
+.asm-flag-info{flex:1;min-width:0;}
+.asm-flag-name{font-family:var(--fb);font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.asm-flag-sub{font-family:var(--fm);font-size:9px;color:var(--dim);margin-top:2px;font-weight:700;}
+.asm-flag-rev{font-family:var(--fn);font-size:13px;font-weight:800;color:var(--red);white-space:nowrap;}
+
+/* ═══════════════ SECTION DIVIDERS ═══════════════ */
+.sec-label{
+  display:flex;align-items:center;gap:10px;
+  font-family:var(--fn);font-size:10px;font-weight:800;letter-spacing:2.5px;text-transform:uppercase;
+  color:var(--dim);margin-bottom:14px;}
+.sec-label::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,var(--bdr),transparent);}
+
+/* ═══════════════ LIGHT MODE TABLE FIXES ═══════════════ */
+body.light-mode th{color:var(--dim);}
+body.light-mode td{border-bottom-color:rgba(184,212,196,.5);}
+body.light-mode tr:hover td{background:rgba(0,143,94,.04);}
+body.light-mode .perf-row:hover{background:rgba(0,143,94,.04);}
+body.light-mode .asm-flag-row:hover{background:rgba(204,30,46,.03);}
+body.light-mode .sh-title{background:linear-gradient(135deg,var(--txt) 60%,var(--grn));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <img src="data:image/jpeg;base64,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" alt="Frutta" style="height:46px;width:auto;object-fit:contain;border-radius:6px;filter:drop-shadow(0 2px 8px rgba(0,0,0,.3))">
+    <div><div class="logo-text">FRUTTA</div><div class="logo-sub">Secondary Sales Dashboard</div></div>
+  </div>
+  <div class="hdr-right">
+    <span id="date-lbl"></span>
+    <span id="file-chip" class="file-chip"></span>
+    <button class="mode-btn" id="mode-btn" onclick="toggleMode()">👁 VIEWER MODE</button>
+    <button class="mode-btn" id="theme-btn" onclick="toggleTheme()">☀️ LIGHT</button>
+    <button class="share-btn" onclick="openShare()">🔗 SHARE</button>
+    <button class="upload-btn" id="upload-btn" onclick="document.getElementById('hfi').click()">⬆ Upload Report</button>
+    <input type="file" id="hfi" accept=".xlsx,.xls" style="display:none" onchange="handleFile(this.files[0])">
+  </div>
+</header>
+
+<!-- ASM DROPDOWN BAR -->
+<div class="fbar" id="fbar">
+  <span class="fbar-lbl">FILTER BY ASM ▸</span>
+  <div class="asm-select-wrap">
+    <select id="asm-select" onchange="pickASMDrop(this.value)">
+      <option value="">— All ASMs —</option>
+    </select>
+  </div>
+  <span class="asm-count" id="asm-count"></span>
+  <button id="fclear" onclick="clearASM()">✕ Clear</button>
+</div>
+
+<nav id="nav">
+  <button class="ntab active" onclick="sw('ov',this)"><span class="dot"></span>Overview</button>
+  <button class="ntab" onclick="sw('gmd',this)"><span class="dot"></span>GMD View</button>
+  <button class="ntab" onclick="sw('north',this)"><span class="dot"></span>North</button>
+  <button class="ntab" onclick="sw('lagos',this)"><span class="dot"></span>Lagos</button>
+  <button class="ntab" onclick="sw('east',this)"><span class="dot"></span>East</button>
+  <button class="ntab" onclick="sw('west',this)"><span class="dot"></span>West</button>
+  <button class="ntab" onclick="sw('ka',this)"><span class="dot"></span>Key Account</button>
+  <button class="ntab" onclick="sw('intel',this)"><span class="dot"></span>Intelligence</button>
+  <button class="ntab" id="upl-tab" onclick="sw('upl',this)">⬆ Upload</button>
+</nav>
+
+<main>
+
+<!-- OVERVIEW -->
+<div id="view-ov" class="view active">
+  <div id="ov-empty" class="empty"><div class="ico">📊</div><h3>Upload your DATA.xlsx file</h3><p>Click "Upload Report" in the top right to get started</p></div>
+  <div id="ov-body" style="display:none">
+    <div class="sh"><div class="sh-title">OVERVIEW</div><span class="badge b-grn">MTD</span><span id="ov-asm" class="badge b-asm" style="display:none"></span><span class="sh-meta" id="ov-period"></span></div>
+    <div class="kg" id="ov-kpis"></div>
+
+    <!-- TOP 3 / BOTTOM 3 REPS -->
+    <div id="ov-perf" style="display:none">
+      <div class="sec-label"><span style="color:var(--grn)">▪</span> Rep Performance Spotlight</div>
+      <div class="perf-grid">
+        <div class="perf-panel">
+          <div class="perf-panel-hd" style="color:var(--grn)">🏆 Top 3 Reps — MTD Revenue</div>
+          <div id="ov-top3"></div>
+        </div>
+        <div class="perf-panel" style="border-color:rgba(255,71,87,.35)">
+          <div class="perf-panel-hd" style="color:var(--red)">⚠ Bottom 3 Reps — Needs Attention</div>
+          <div id="ov-bot3"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LEAST 3 ASMs PER REGION -->
+    <div id="ov-asmflag" style="display:none">
+      <div class="sec-label"><span style="color:var(--red)">▪</span> 🚩 Flagged — Lowest Performing ASMs per Region</div>
+      <div class="asm-flag-grid" id="ov-asmflag-grid"></div>
+    </div>
+
+    <!-- TOP ASM LEADERBOARD -->
+    <div id="ov-asm-top" style="display:none;margin-bottom:22px">
+      <div class="sec-label"><span style="color:var(--pur)">▪</span> 🏅 Top Performing ASMs</div>
+      <div id="ov-asm-top-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px"></div>
+    </div>
+
+    <div class="cg g2">
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Revenue by Region (₦)</div><div class="cw"><canvas id="c-ov-rev"></canvas></div></div>
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Cases Sold by Region</div><div class="cw"><canvas id="c-ov-cas"></canvas></div></div>
+    </div>
+    <div class="cg g2">
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Attendance by Region</div><div class="cw"><canvas id="c-ov-att"></canvas></div></div>
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Conversion Rate % by Region</div><div class="cw"><canvas id="c-ov-con"></canvas></div></div>
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Avg Compliance % by Region <span style="font-size:9px;opacity:.6">(target 220)</span></div><div class="cw"><canvas id="c-ov-cmp"></canvas></div></div>
+    </div>
+    <div class="tb"><div class="tb-hd"><span style="color:var(--grn)">▪</span>Full Region Summary</div>
+      <div style="overflow-x:auto"><table><thead><tr><th>Region</th><th>MTD Revenue</th><th>Cases</th><th>Active</th><th>Productive</th><th>Outlets Met</th><th>Customers Sold</th><th>Conv. Rate</th><th>Compliance <span style="font-weight:400;font-size:9px;opacity:.7">/220</span></th><th>Rev. Share</th></tr></thead>
+      <tbody id="ov-tbl"></tbody></table></div>
+    </div>
+  </div>
+</div>
+
+<!-- GMD VIEW -->
+<div id="view-gmd" class="view">
+  <div id="gmd-empty" class="empty"><div class="ico">👔</div><h3>Upload report to view GMD summary</h3></div>
+  <div id="gmd-body" style="display:none">
+    <div class="sh"><div class="sh-title">GMD VIEW</div><span class="badge b-amb">EXECUTIVE</span><span id="gmd-asm" class="badge b-asm" style="display:none"></span></div>
+    <div class="banner"><div style="font-size:30px">📈</div><div><h3 id="gmd-hl"></h3><p id="gmd-sub"></p></div></div>
+
+    <!-- KPI CARDS -->
+    <div class="kg" id="gmd-kpis"></div>
+
+    <!-- MOMENTUM CARD -->
+    <div class="sec-label"><span style="color:var(--amb)">▪</span> Business Momentum</div>
+    <div id="gmd-pace" style="margin-bottom:26px"></div>
+
+    <!-- REGION HEALTH RAG -->
+    <div class="sec-label"><span style="color:var(--grn)">▪</span> Region Health Status</div>
+    <div id="gmd-rag" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:26px"></div>
+
+    <!-- CHARTS ROW 1 -->
+    <div class="cg g3">
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Revenue by Region (₦)</div><div class="cw"><canvas id="c-gmd-rev"></canvas></div></div>
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Cases by Region</div><div class="cw"><canvas id="c-gmd-cas"></canvas></div></div>
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Conversion % by Region</div><div class="cw"><canvas id="c-gmd-con"></canvas></div></div>
+    </div>
+
+    <!-- TREND + ENRICHED SCORECARD -->
+    <div class="cg g2">
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Daily Revenue Trend</div><div class="cw tall"><canvas id="c-gmd-trend"></canvas></div></div>
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Region Scorecard</div>
+        <div style="overflow-x:auto"><table><thead><tr><th>Region</th><th>Revenue</th><th>Cases</th><th>Drop Size</th><th>Att.</th><th>Conv%</th><th>Proj. Rev</th></tr></thead>
+        <tbody id="gmd-tbl"></tbody></table></div>
+      </div>
+    </div>
+
+    <!-- ROOT CAUSE BREAKDOWN -->
+    <div class="sec-label"><span style="color:var(--red)">▪</span> 🔍 Root Cause Breakdown — Revenue Gap Analysis</div>
+    <div id="gmd-rootcause" style="margin-bottom:26px"></div>
+
+    <!-- EXECUTIVE ALERTS -->
+    <div class="sec-label"><span style="color:var(--amb)">▪</span> ⚡ Executive Alerts & Action Items</div>
+    <div id="gmd-alerts" style="margin-bottom:26px"></div>
+
+    <!-- REP PRODUCTIVITY DISTRIBUTION -->
+    <div class="sec-label"><span style="color:var(--blu)">▪</span> 📊 Rep Productivity Spread by Region</div>
+    <div class="cg g2" style="margin-bottom:26px">
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Revenue per Active Rep by Region</div><div class="cw"><canvas id="c-gmd-revperrep"></canvas></div></div>
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Zero-Rev Reps vs Active Reps</div><div class="cw"><canvas id="c-gmd-zerorep"></canvas></div></div>
+    </div>
+
+    <!-- TOP 3 REPS COMPANY-WIDE -->
+    <div class="sec-label"><span style="color:var(--grn)">▪</span> 🏆 Top 3 Reps — Company Wide</div>
+    <div class="perf-grid" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:26px" id="gmd-top3-wrap">
+      <div class="perf-panel"><div class="perf-panel-hd" style="color:var(--grn)">🥇 #1 Rep</div><div id="gmd-top1"></div></div>
+      <div class="perf-panel"><div class="perf-panel-hd" style="color:var(--grn)">🥈 #2 Rep</div><div id="gmd-top2"></div></div>
+      <div class="perf-panel"><div class="perf-panel-hd" style="color:var(--grn)">🥉 #3 Rep</div><div id="gmd-top3"></div></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- REGION VIEWS -->
+<div id="view-north" class="view"><div id="rg-north"></div></div>
+<div id="view-lagos" class="view"><div id="rg-lagos"></div></div>
+<div id="view-east"  class="view"><div id="rg-east"></div></div>
+<div id="view-west"  class="view"><div id="rg-west"></div></div>
+<div id="view-ka"    class="view"><div id="rg-ka"></div></div>
+
+<!-- INTELLIGENCE VIEW -->
+<div id="view-intel" class="view">
+  <div id="intel-empty" class="empty"><div class="ico">🧠</div><h3>Upload report to unlock Intelligence</h3></div>
+  <div id="intel-body" style="display:none">
+    <div class="sh"><div class="sh-title">INTELLIGENCE</div><span class="badge b-pur" style="color:var(--pur);background:rgba(162,89,255,.1);border:1px solid rgba(162,89,255,.4)">DEEP DIVE</span></div>
+
+    <!-- RUN RATE -->
+    <div class="sec-label"><span style="color:var(--amb)">▪</span> Month-End Projection & Run Rate</div>
+    <div class="kg" id="intel-runrate"></div>
+
+    <!-- AVG TXN VALUE + ZERO REPS -->
+    <div class="cg g2" style="margin-bottom:22px">
+      <div class="cc">
+        <div class="cc-ttl"><span class="d">▪</span>Avg Cases per Rep by Region</div>
+        <div class="cw"><canvas id="c-intel-atv"></canvas></div>
+      </div>
+      <div class="cc" style="border-color:rgba(255,71,87,.3)">
+        <div class="cc-ttl" style="color:var(--red)"><span style="color:var(--red);font-size:13px">▪</span> ⚠ Zero Revenue Reps (in attendance, ₦0 sold)</div>
+        <div id="intel-zeroreps" style="max-height:210px;overflow-y:auto"></div>
+      </div>
+    </div>
+
+    <!-- BRAND MIX -->
+    <div class="sec-label"><span style="color:var(--grn)">▪</span> Brand Performance</div>
+    <div class="kg" id="intel-brand-kpis"></div>
+    <div class="cg g2" style="margin-bottom:22px">
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Brand Revenue Mix</div><div class="cw"><canvas id="c-intel-brand"></canvas></div></div>
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Brand Revenue by Region</div><div class="cw"><canvas id="c-intel-brandrgn"></canvas></div></div>
+    </div>
+
+    <!-- CHANNEL MIX -->
+    <div class="sec-label"><span style="color:var(--blu)">▪</span> Channel Mix</div>
+    <div class="cg g2" style="margin-bottom:22px">
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Channel Revenue Split</div><div class="cw"><canvas id="c-intel-chan"></canvas></div></div>
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Channel Mix by Region</div><div class="cw"><canvas id="c-intel-chanrgn"></canvas></div></div>
+    </div>
+
+    <!-- SKU LEADERBOARD -->
+    <div class="sec-label"><span style="color:var(--pur)">▪</span> SKU Leaderboard — Top 10 Products</div>
+    <div class="tb" style="margin-bottom:22px">
+      <div style="overflow-x:auto">
+        <table><thead><tr><th>#</th><th>SKU</th><th>Brand</th><th>Revenue</th><th>Cases</th><th>Avg Order Value</th><th>Rev Share</th></tr></thead>
+        <tbody id="intel-sku-tbl"></tbody></table>
+      </div>
+    </div>
+
+    <!-- DAILY PERFORMANCE HEATMAP -->
+    <div class="sec-label"><span style="color:var(--grn)">▪</span> Daily Revenue Heatmap</div>
+    <div class="cc" style="margin-bottom:22px">
+      <div id="intel-heatmap" style="display:flex;flex-wrap:wrap;gap:6px;padding:4px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- UPLOAD -->
+<div id="view-upl" class="view">
+  <div class="sh"><div class="sh-title">UPLOAD DATA</div></div>
+  <div class="drop-zone" id="dz" onclick="document.getElementById('dfi').click()">
+    <input type="file" id="dfi" accept=".xlsx,.xls" style="display:none" onchange="handleFile(this.files[0])">
+    <div style="font-size:44px;margin-bottom:12px">📂</div>
+    <h3 style="font-family:var(--fn);font-size:19px;font-weight:700;margin-bottom:9px;color:var(--txt)">Drop your DATA.xlsx here</h3>
+    <p style="color:var(--dim);font-size:13px;line-height:1.8">All KPIs, ASM filter, and region scorecards built automatically from your file</p>
+    <div class="pills">
+      <span class="pill">Sales data</span>
+      <span class="pill">OUTLET VISIT REPORT</span>
+      <span class="pill">Attendance data</span>
+      <span class="pill">North / Lagos / East / West / KA Atte</span>
+    </div>
+  </div>
+</div>
+
+</main>
+
+<!-- SHARE MODAL -->
+<div class="modal-bg" id="share-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeShare()">✕</button>
+    <h2>🔗 Share Your Dashboard</h2>
+    <div class="modal-sub">GET A LIVE LINK YOUR TEAM CAN CLICK — NO LOGIN NEEDED</div>
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <div class="step-title">Upload your latest data first</div>
+        <div class="step-desc">Use the "Upload Report" button in the top right. Your data gets embedded in memory — then save the HTML file once you're happy with it.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <div class="step-title">Go to Netlify Drop</div>
+        <div class="step-desc">Open <a href="https://app.netlify.com/drop" target="_blank">app.netlify.com/drop</a> — it's free, no account needed. Drag and drop this HTML file onto the page.</div>
+        <div class="copy-row">
+          <input class="copy-input" value="https://app.netlify.com/drop" readonly id="netlify-url">
+          <button class="copy-btn" onclick="copyText('netlify-url','Link copied!')">Copy Link</button>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <div class="step-title">Get your shareable link instantly</div>
+        <div class="step-desc">Netlify gives you a link like <strong style="color:var(--grn)">your-name.netlify.app</strong> — share it with your team. They open it in any browser, no file download needed.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <div class="step-title">Update anytime</div>
+        <div class="step-desc">When you have new data — upload fresh Excel here, then drag the HTML file to Netlify again. The same link updates automatically.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-body">
+        <div class="step-title">Hide the upload button before sharing</div>
+        <div class="step-desc">Click <strong style="color:var(--txt)">👁 VIEWER MODE</strong> before recording or sharing your screen — it hides the upload button so viewers only see the dashboard.</div>
+      </div>
+    </div>
+    <div class="modal-tip">
+      💡 <strong>ASM Filter tip:</strong> Once data is loaded, the ASM filter bar appears below the header. Anyone viewing the shared link can click an ASM name to filter all views instantly — Overview, GMD, and all region tabs update in real time.
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* ═══════════════════════════ CONSTANTS ══════════════════════ */
+const REGIONS = ['NORTH','LAGOS','EAST','WEST','Key Acct'];
+const RC = {NORTH:'#00e5a0',LAGOS:'#3d9eff',EAST:'#a259ff',WEST:'#f5a623','Key Acct':'#ff4757'};
+const RK = {NORTH:'north',LAGOS:'lagos',EAST:'east',WEST:'west','Key Acct':'ka'};
+const COMPLIANCE_TARGET = 220; // expected outlets per rep per month
+const ATTE = ['North Atte','Lagos Atte','East Atte','West Atte'];
+
+let D=null, CH={}, viewerMode=false, activeASM=null;
+
+document.getElementById('date-lbl').textContent =
+  new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+
+/* ═══════════════════════════════════════════════════════════════
+   FIX v5: rgnFromCode — handles ALL code patterns:
+   
+   KEY ACCOUNT codes: KAT* (e.g. KATEE1233, KATLE1229, KATWE1240)
+     Full set: KATEE1233 KATEE1239 KATLE1229 KATEE1232 KATEE1231
+               KATEE1234 KATWE1240 KATWE1241 KATEE1238 KATEE1230
+   Regional short codes: NOR*, LAG*, EST*, WST*
+   Full login IDs in Atte sheets: NORSR*, LAGSR*, ESTSR*, WSTSR*, KASR*
+   ═══════════════════════════════════════════════════════════════ */
+function rgnFromCode(val) {
+  if (!val) return null;
+  const v = String(val).toUpperCase().trim();
+  // KAT* codes = Key Account rep codes (KATEE*, KATLE*, KATWE* etc.)
+  if (v.startsWith('KAT'))   return 'Key Acct';
+  // KASR* = KA Atte login IDs
+  if (v.startsWith('KASR'))  return 'Key Acct';
+  // Full login IDs from Atte sheets (check BEFORE short prefixes to avoid false matches)
+  if (v.startsWith('NORSR')) return 'NORTH';
+  if (v.startsWith('LAGSR')) return 'LAGOS';
+  if (v.startsWith('ESTSR')) return 'EAST';
+  if (v.startsWith('WSTSR')) return 'WEST';
+  // Short regional codes from Sales data / Outlet Visit Report
+  if (v.startsWith('NOR'))   return 'NORTH';
+  if (v.startsWith('LAG'))   return 'LAGOS';
+  if (v.startsWith('EST'))   return 'EAST';
+  if (v.startsWith('WST'))   return 'WEST';
+  // Generic KA fallback (KA Atte login IDs that don't match KASR pattern)
+  if (v.startsWith('KA'))    return 'Key Acct';
+  return null;
+}
+
+/* Keep legacy alias used elsewhere */
+const rgnFromLogin = rgnFromCode;
+
+/* ═══════════════════════════════════════════════════════════════
+   isManagerCode — returns true for ASMs and KA managers.
+   These codes should be excluded from sales rep metrics:
+   - Any code containing "AS" → ASM (Area Sales Manager)
+   - KA manager codes: LM*, NM*, EM*, WM* (regional KA managers)
+   Revenue they logged is kept in regional totals but they are
+   NOT counted in Active Reps, Productive Reps, or per-rep averages.
+   ═══════════════════════════════════════════════════════════════ */
+function isManagerCode(code){
+  if(!code) return false;
+  const v = String(code).toUpperCase().trim();
+  // ASM codes contain "AS" anywhere (e.g. NORAS01, LAGAS02)
+  if(v.includes('AS')) return true;
+  // KA manager codes start with LM, NM, EM, WM (followed by digits or letters)
+  if(/^(LM|NM|EM|WM)/i.test(v)) return true;
+  return false;
+}
+
+function normRgn(raw){
+  const r=String(raw||'').toUpperCase().trim();
+  if(r.includes('KEY')||r.includes('KAT')||r.startsWith('KA')) return 'Key Acct';
+  if(r.startsWith('NORTH')||r.startsWith('NOR')) return 'NORTH';
+  if(r.startsWith('LAGOS')||r.startsWith('LAG')) return 'LAGOS';
+  if(r.startsWith('EAST') ||r.startsWith('EST')) return 'EAST';
+  if(r.startsWith('WEST') ||r.startsWith('WST')) return 'WEST';
+  return r;
+}
+
+/* ═══════════════════════════ UI CONTROLS ════════════════════ */
+function toggleMode(){
+  viewerMode=!viewerMode;
+  document.getElementById('upload-btn').style.display=viewerMode?'none':'';
+  document.getElementById('upl-tab').style.display=viewerMode?'none':'';
+  document.getElementById('mode-btn').textContent=viewerMode?'🔑 ADMIN MODE':'👁 VIEWER MODE';
+  if(viewerMode&&document.getElementById('view-upl').classList.contains('active'))
+    sw('ov',document.querySelector('.ntab'));
+  toast(viewerMode?'Viewer mode — upload hidden':'Admin mode — upload visible');
+}
+
+function toggleTheme(){
+  const isLight = document.body.classList.toggle('light-mode');
+  const btn = document.getElementById('theme-btn');
+  btn.textContent = isLight ? '🌙 DARK' : '☀️ LIGHT';
+  // Update Chart.js charts for new theme colors
+  const gridColor = isLight ? '#c4d8cc' : '#1e3045';
+  const tickColor = isLight ? '#5a8070' : '#4a7a6a';
+  Object.values(CH).forEach(chart=>{
+    if(chart.options.scales){
+      ['x','y'].forEach(ax=>{
+        if(chart.options.scales[ax]){
+          chart.options.scales[ax].grid.color = gridColor;
+          chart.options.scales[ax].ticks.color = tickColor;
+          chart.options.scales[ax].ticks.font = {size:10,family:'Space Mono,monospace',weight:'700'};
+        }
+      });
+    }
+    if(chart.options.plugins?.tooltip){
+      chart.options.plugins.tooltip.backgroundColor = isLight ? '#ffffff' : '#0c1117';
+      chart.options.plugins.tooltip.titleColor = isLight ? '#5a8070' : '#4a7a6a';
+      chart.options.plugins.tooltip.bodyColor = isLight ? '#0d1f18' : '#e8f4f0';
+      chart.options.plugins.tooltip.borderColor = isLight ? '#c4d8cc' : '#1e3045';
+      chart.options.plugins.tooltip.titleFont = {family:'Space Mono,monospace',weight:'700',size:10};
+      chart.options.plugins.tooltip.bodyFont  = {family:'Space Mono,monospace',weight:'700',size:11};
+    }
+    if(chart.options.plugins?.legend?.labels){
+      chart.options.plugins.legend.labels.color = tickColor;
+      chart.options.plugins.legend.labels.font = {size:10,family:'Space Mono,monospace',weight:'700'};
+    }
+    chart.update('none');
+  });
+  toast(isLight ? '☀️ Light mode on' : '🌙 Dark mode on');
+}
+
+function sw(id,btn){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.querySelectorAll('.ntab').forEach(b=>b.classList.remove('active'));
+  document.getElementById('view-'+id).classList.add('active');
+  if(btn) btn.classList.add('active');
+  if(D&&id!=='upl') renderView(id);
+}
+
+/* ═══════════════════════════ SHARE MODAL ════════════════════ */
+function openShare(){ document.getElementById('share-modal').classList.add('on'); }
+function closeShare(){ document.getElementById('share-modal').classList.remove('on'); }
+document.getElementById('share-modal').addEventListener('click',function(e){ if(e.target===this) closeShare(); });
+function copyText(inputId, msg){
+  const el=document.getElementById(inputId);
+  navigator.clipboard.writeText(el.value).then(()=>toast(msg)).catch(()=>{
+    el.select(); document.execCommand('copy'); toast(msg);
+  });
+}
+
+/* ═══════════════════════════ ASM DROPDOWN ════════════════════ */
+function buildASMBar(){
+  const asms=[...new Set(
+    Object.values(D.reps)
+      .map(r=>r.asm)
+      .filter(a=>a && a.trim() && !a.startsWith('=') && a.toLowerCase()!=='asm' && a.length>1)
+  )].sort();
+
+  const sel = document.getElementById('asm-select');
+  sel.innerHTML = '<option value="">— All ASMs —</option>';
+  asms.forEach(a=>{
+    const opt=document.createElement('option');
+    opt.value=a; opt.textContent=a;
+    sel.appendChild(opt);
+  });
+
+  if(!asms.length){ toast('⚠ No ASM names found — check your Atte sheets have ASM in column C'); return; }
+
+  document.getElementById('asm-count').textContent=asms.length+' ASMs';
+  document.getElementById('fbar').classList.add('on');
+  document.getElementById('nav').classList.add('shifted');
+}
+
+function pickASMDrop(name){
+  if(!name){ clearASM(); return; }
+  activeASM=name;
+  document.getElementById('asm-select').classList.add('active');
+  document.getElementById('fclear').style.display='';
+  if(D) renderAll();
+  toast('Filtering: '+name);
+}
+
+function pickASM(name){ // keep alias
+  document.getElementById('asm-select').value=name;
+  pickASMDrop(name);
+}
+
+function clearASM(){
+  activeASM=null;
+  const sel=document.getElementById('asm-select');
+  sel.value=''; sel.classList.remove('active');
+  document.getElementById('fclear').style.display='none';
+  if(D) renderAll();
+  toast('Filter cleared — showing all');
+}
+
+/* ═══════════════════════════ DRAG & DROP ════════════════════ */
+const dz=document.getElementById('dz');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag');});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');handleFile(e.dataTransfer.files[0]);});
+
+/* ═══════════════════════════ FILE HANDLER ════════════════════ */
+function handleFile(file){
+  if(!file) return;
+  const btn=document.getElementById('upload-btn');
+  btn.disabled=true; btn.textContent='⏳ Parsing…';
+  toast('⏳ Reading '+file.name+'…');
+  const rd=new FileReader();
+  rd.onload=e=>{
+    try{
+      const wb=XLSX.read(e.target.result,{type:'binary',cellDates:true});
+      D=parseWB(wb);
+      document.getElementById('file-chip').textContent='📎 '+file.name;
+      document.getElementById('file-chip').style.display='';
+      buildASMBar();
+      renderAll();
+      sw('ov',document.querySelector('.ntab'));
+      const repCount=Object.keys(D.reps).filter(c=>!D.reps[c].isManager).length;
+      const mgrCount=Object.keys(D.reps).filter(c=>D.reps[c].isManager).length;
+      const asmCount=[...new Set(Object.values(D.reps).map(r=>r.asm).filter(Boolean))].length;
+      toast(`✓ ${file.name} · ${repCount} reps · ${mgrCount} managers excluded · ${asmCount} ASMs loaded`);
+    }catch(err){
+      console.error(err);
+      toast('✗ Parse error: '+err.message);
+    }
+    btn.disabled=false; btn.textContent='⬆ Upload Report';
+  };
+  rd.readAsBinaryString(file);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PARSE WORKBOOK — v6
+   KEY FIXES:
+   1. Auto-detect column positions by reading header row names
+      instead of hardcoding column indices — handles any column order
+   2. Attendance data sheet used to build codeToLogin bridge
+      then CROSS-MATCH to re-count attendance by SALES CODE not login
+   3. KA codes (KAT*) treated as canonical = same as NOR/LAG/EST/WST
+   4. No reps[] entries created from Atte/Attendance sheets —
+      Sales data is SOLE source of rep revenue/cases data
+   5. Attendance count = sales codes that appear in the Atte sheets
+      (matched via codeToLogin bridge)
+   ═══════════════════════════════════════════════════════════════ */
+function parseWB(wb){
+  const reg={};
+  for(const r of REGIONS)
+    reg[r]={revenue:0,cases:0,custsSold:new Set(),outlets:new Set(),att:new Set()};
+
+  /* ── Intelligence tables ── */
+  const brands   = {};  // brand -> {revenue, cases}
+  const channels = {};  // channel -> {revenue, cases}
+  const skus     = {};  // sku_desc -> {brand, revenue, cases}
+  const chanByRgn= {};  // region -> channel -> revenue
+  const brandByRgn={};  // region -> brand -> revenue
+
+  /* ── Lookup tables (enrichment only, NOT rep keys) ── */
+  const loginToASM  = {};  // any-id  → ASM name
+  const loginToName = {};  // any-id  → display name
+  const codeToLogin = {};  // sales code → login id
+  const loginToCode = {};  // login id  → sales code
+  const codeToRgn   = {};  // sales code → region
+
+  const reps     = {};  // keyed by SALES CODE only
+  const daily    = {};
+  const dailyAll = {};
+
+  /* ── Numeric salesman_code → KAT login bridge (for KA reps) ── */
+  const numericToLogin = {};  // e.g. '1238' → 'KATEE1238'
+
+  /* ── Helpers ── */
+  function ensureRep(code, rgn, name, asm){
+    if(!reps[code]){
+      reps[code]={name:name||'',region:rgn||'',asm:asm||'',revenue:0,cases:0,custsSold:new Set(),outlets:new Set(),isManager:isManagerCode(code)};
+    } else {
+      if(!reps[code].name   && name) reps[code].name   = name;
+      if(!reps[code].region && rgn)  reps[code].region = rgn;
+      if(!reps[code].asm    && asm)  reps[code].asm    = asm;
+    }
+  }
+
+  /* Auto-detect column index by scanning header row for keyword */
+  function colIdx(headers, ...keywords){
+    for(const kw of keywords){
+      const k = kw.toLowerCase();
+      const i = headers.findIndex(h => h && String(h).toLowerCase().includes(k));
+      if(i >= 0) return i;
+    }
+    return -1;
+  }
+
+  /* Clean ASM value */
+  function cleanAsm(v){
+    if(!v) return '';
+    const s = String(v).trim();
+    if(s.startsWith('=') || s.toLowerCase()==='asm' || s.toLowerCase()==='supervisor' || s.length<2) return '';
+    return s;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     STEP 0: Resource Alignment — pre-build numeric code → KAT login bridge
+     Cols: [salesman_code, fulname, region_description, Designation, Login ID, ASM, ...]
+     KA reps use numeric salesman_code (e.g. 1238) but KAT* login IDs (e.g. KATEE1238)
+  ═══════════════════════════════════════════════════════════════ */
+  const wsRA = wb.Sheets['Resource Alignment'];
+  if(wsRA){
+    const raRows = XLSX.utils.sheet_to_json(wsRA, {header:1, defval:null});
+    for(let i=0; i<raRows.length; i++){
+      const row = raRows[i];
+      if(!row || !row[0]) continue;
+      const sc    = String(row[0]).trim();   // salesman_code (may be numeric string)
+      const name  = String(row[1]||'').trim();
+      const rgn   = normRgn(String(row[2]||''));
+      const login = String(row[4]||'').trim();  // Login ID e.g. KATEE1238
+      const asm   = cleanAsm(String(row[5]||''));
+      if(!sc || sc.toLowerCase()==='salesman_code' || sc.startsWith('=')) continue;
+      if(login && rgnFromCode(login)){
+        // Bridge: numeric salesman code → KAT login
+        numericToLogin[sc] = login;
+        // Also register into lookup tables
+        loginToASM[login]  = loginToASM[login]  || asm;
+        loginToName[login] = loginToName[login] || name;
+        loginToASM[sc]     = loginToASM[sc]     || asm;
+        loginToName[sc]    = loginToName[sc]    || name;
+        codeToLogin[sc]    = codeToLogin[sc]    || login;
+        loginToCode[login] = loginToCode[login] || sc;
+      }
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     STEP 1: ALL ATTE SHEETS — build loginToASM, loginToName, att counts
+     Sheets: North Atte, Lagos Atte, East Atte, West Atte, KA Atte
+     
+     CRITICAL: We scan ALL columns for login/code, name, ASM.
+     We store EVERY identifier found (login OR code) so it can be
+     looked up later from any direction.
+     We also try to detect if col A has the SALES CODE directly (KAT*, NOR*, etc.)
+     or a login ID (NORSR*, KASR*, etc.) — handles both layouts.
+  ═══════════════════════════════════════════════════════════════ */
+  const allAtteSheets = [...ATTE, 'KA Atte'];
+  for(const sh of allAtteSheets){
+    const ws = wb.Sheets[sh];
+    if(!ws) continue;
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+    if(!rows.length) continue;
+
+    // Find header row — first row where col[0] looks like a code/login
+    let dataStart = 0;
+    for(let i=0; i<Math.min(rows.length, 8); i++){
+      const v = rows[i] && rows[i][0] ? String(rows[i][0]).trim().toUpperCase() : '';
+      // Header rows say "LOGIN" or "CODE" etc; data rows have actual codes
+      if(v && v !== 'LOGIN' && v !== 'LOGIN II' && v !== 'CODE' && v !== 'SR CODE'
+         && !v.startsWith('=') && (rgnFromCode(v) || v.match(/^[A-Z]{2,6}\d{3,}/)))
+      { dataStart = i; break; }
+    }
+
+    // Detect columns: try to find Name and ASM cols from header row above dataStart
+    let colName = 1, colAsm = 2, colCode = -1;
+    if(dataStart > 0){
+      const hdr = rows[dataStart - 1] || [];
+      const ni = colIdx(hdr, 'name', 'rep name', 'staff');
+      const ai = colIdx(hdr, 'asm', 'supervisor', 'manager');
+      const ci = colIdx(hdr, 'code', 'sr code', 'login');
+      if(ni >= 0) colName = ni;
+      if(ai >= 0) colAsm  = ai;
+      if(ci >= 0) colCode = ci;
+    }
+
+    const isKA = sh === 'KA Atte';
+    const rgn  = isKA ? 'Key Acct' : null; // for non-KA, derive from code prefix
+
+    for(let i = dataStart; i < rows.length; i++){
+      const row = rows[i];
+      if(!row || !row[0]) continue;
+      const id   = String(row[0]).trim();
+      if(!id || id.startsWith('=') || id.toLowerCase().includes('login') || id.toLowerCase().includes('total')) continue;
+
+      const name   = String(row[colName] || '').trim();
+      const asmRaw = String(row[colAsm]  || '').trim();
+      const asm    = cleanAsm(asmRaw);
+      // Extra code column (if detected)
+      const extraCode = colCode > 0 ? String(row[colCode]||'').trim() : '';
+
+      const detectedRgn = rgnFromCode(id) || rgn;
+      if(!detectedRgn) continue;
+
+      // Register id (login or code) into lookups
+      loginToASM[id]  = asm;
+      loginToName[id] = name;
+
+      // If extraCode found and different from id, register it too
+      if(extraCode && extraCode !== id && rgnFromCode(extraCode)){
+        loginToASM[extraCode]  = asm;
+        loginToName[extraCode] = name;
+        // Bridge: if id is login-style and extraCode is sales-code-style
+        if(!rgnFromCode(id) || id.length > extraCode.length){
+          codeToLogin[extraCode] = id;
+          loginToCode[id]        = extraCode;
+        } else {
+          codeToLogin[id]    = extraCode;
+          loginToCode[extraCode] = id;
+        }
+      }
+
+      // MTD Attendance: one row per rep per day = only actual check-ins appear here
+      // Adding to att gives us unique reps who checked in at least once MTD
+      reg[detectedRgn].att.add(id);
+
+      // For KA: pre-create rep entry if id is a KAT* sales code
+      if(id.toUpperCase().startsWith('KAT')){
+        codeToLogin[id] = id; // self-reference fallback
+        ensureRep(id, 'Key Acct', name, asm);
+      }
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     STEP 2: Attendance data sheet
+     This is the BRIDGE between login IDs and sales codes.
+     Typical cols: [row#] [sales_code] [login_id] [name] [days_worked]
+     We auto-detect which col is code vs login by looking at prefixes.
+  ═══════════════════════════════════════════════════════════════ */
+  const wsAD = wb.Sheets['Attendance data'];
+  if(wsAD){
+    const rows = XLSX.utils.sheet_to_json(wsAD, {header:1, defval:null});
+    // Find header row
+    let hdrRow = 0;
+    for(let i=0; i<Math.min(rows.length,5); i++){
+      const r = rows[i];
+      if(r && r.some(c => c && String(c).toLowerCase().includes('code'))) { hdrRow=i; break; }
+    }
+    const hdr = rows[hdrRow] || [];
+    // Auto-detect: find which column has sales codes (NOR*, LAG*, KAT*, etc.) vs logins (NORSR*, LAGSR*)
+    // Strategy: scan first 20 data rows, find cols where values start with known prefixes
+    let salesCodeCol = -1, loginCol = -1, nameCol = -1;
+    for(let i = hdrRow+1; i < Math.min(rows.length, hdrRow+20); i++){
+      const row = rows[i];
+      if(!row) continue;
+      for(let c=0; c<Math.min(row.length, 8); c++){
+        const v = String(row[c]||'').trim().toUpperCase();
+        if(!v || v.length < 3) continue;
+        // Sales code: NOR*, LAG*, EST*, WST*, KAT*, etc. (shorter, no 'SR'/'SP' substring beyond prefix)
+        if(rgnFromCode(v) && !v.includes('SR') && !v.includes('SP') && salesCodeCol<0) salesCodeCol = c;
+        // Login: contains SR or SP after region prefix
+        if(rgnFromCode(v) && (v.includes('SR') || v.includes('SP')) && loginCol<0) loginCol = c;
+      }
+      if(salesCodeCol>=0 && loginCol>=0) break;
+    }
+    // Fallback to header-based detection
+    if(salesCodeCol<0) salesCodeCol = colIdx(hdr,'code','sr code','rep code');
+    if(loginCol<0)     loginCol     = colIdx(hdr,'login','login id','user');
+    if(nameCol<0)      nameCol      = colIdx(hdr,'name','rep name','staff');
+    // Final fallback: assume [row, code, login, name]
+    if(salesCodeCol<0) salesCodeCol = 1;
+    if(loginCol<0)     loginCol     = 2;
+    if(nameCol<0)      nameCol      = 3;
+
+    for(let i = hdrRow+1; i < rows.length; i++){
+      const row = rows[i];
+      if(!row || row[0]==null) continue;
+      const code  = String(row[salesCodeCol]||'').trim();
+      const login = String(row[loginCol]    ||'').trim();
+      const name  = String(row[nameCol]     ||'').trim();
+      if(!code || code.startsWith('=')) continue;
+
+      if(login && !login.startsWith('=')){
+        codeToLogin[code]  = login;
+        loginToCode[login] = code;
+        if(!loginToASM[code]  && loginToASM[login])  loginToASM[code]  = loginToASM[login];
+        if(!loginToASM[login] && loginToASM[code])    loginToASM[login] = loginToASM[code];
+        if(!loginToName[code]  && name) loginToName[code]  = name;
+        if(!loginToName[login] && name) loginToName[login] = name;
+      }
+    }
+
+    /* Re-count attendance using sales codes now that bridge is built.
+       For each login in reg[r].att that has a matching sales code,
+       swap it out so att.size reflects unique sales reps not login IDs. */
+    for(const r of REGIONS){
+      const resolved = new Set();
+      for(const id of reg[r].att){
+        const code = loginToCode[id] || (rgnFromCode(id) ? id : null);
+        resolved.add(code || id);
+      }
+      reg[r].att = resolved;
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     STEP 3: OUTLET VISIT REPORT
+     Auto-detect columns for: customer, rep code, login
+  ═══════════════════════════════════════════════════════════════ */
+  const wsV = wb.Sheets['OUTLET VISIT REPORT '] || wb.Sheets['OUTLET VISIT REPORT'];
+  if(wsV){
+    const rows = XLSX.utils.sheet_to_json(wsV, {header:1, defval:null});
+    if(rows.length > 0){
+      const hdr = rows[0] || [];
+      let custCol  = colIdx(hdr, 'customer', 'outlet', 'cust name', 'account');
+      let codeCol  = colIdx(hdr, 'code', 'sr code', 'rep code', 'staff code');
+      let loginCol = colIdx(hdr, 'login', 'login id', 'user id');
+      // Fallback: scan first rows to auto-detect
+      if(custCol<0 || codeCol<0){
+        for(let i=1; i<Math.min(rows.length,5); i++){
+          const row=rows[i]; if(!row) continue;
+          for(let c=0; c<Math.min(row.length,8); c++){
+            const v=String(row[c]||'').trim().toUpperCase();
+            if(rgnFromCode(v) && !v.includes('SR') && !v.includes('SP') && codeCol<0) codeCol=c;
+            if(rgnFromCode(v) && (v.includes('SR')||v.includes('SP')) && loginCol<0)  loginCol=c;
+          }
+        }
+      }
+      // Hard fallback to known column positions
+      if(custCol<0)  custCol  = 1;
+      if(codeCol<0)  codeCol  = 3;
+      if(loginCol<0) loginCol = 4;
+
+      for(let i=1; i<rows.length; i++){
+        const row = rows[i];
+        if(!row || row[0]==null) continue;
+        const cust  = String(row[custCol]  ||'').trim();
+        let code    = String(row[codeCol]  ||'').trim();
+        const login = String(row[loginCol] ||'').trim();
+        if(!cust || !code || code.startsWith('=')) continue;
+
+        // For KA: numeric salesman_code won't match rgnFromCode — use login (KATEE* etc.) as canonical code
+        if(!rgnFromCode(code) && login && rgnFromCode(login)){
+          code = login;
+        }
+        // Also try numeric→KAT bridge
+        if(!rgnFromCode(code) && numericToLogin[code]){
+          code = numericToLogin[code];
+        }
+
+        const rgn = rgnFromCode(code) || null;
+        if(!rgn) continue;
+
+        if(login && !login.startsWith('=') && login !== code){
+          codeToLogin[code]  = codeToLogin[code]  || login;
+          loginToCode[login] = loginToCode[login] || code;
+        }
+        const asm  = loginToASM[code] || loginToASM[login] || loginToASM[codeToLogin[code]] || '';
+        const name = loginToName[code]|| loginToName[login]|| loginToName[codeToLogin[code]]|| '';
+
+        reg[rgn].outlets.add(cust);
+        ensureRep(code, rgn, name, asm);
+        reps[code].outlets.add(cust);
+        // MTD attendance: visited at least one outlet = was active in the field
+        reg[rgn].att.add(code);
+      }
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     STEP 4: Sales data — FINAL CLEAN REWRITE
+     
+     Strategy: read every row with raw numbers. For each row, scan
+     ALL columns to find the rep code (any cell matching rgnFromCode).
+     Then find qty and amt as the two rightmost positive-number columns.
+     No pre-detection. No assumptions. Works for ALL regions including KA.
+  ═══════════════════════════════════════════════════════════════ */
+  const wsS = wb.Sheets['Sales data'];
+  if(wsS){
+    // Read twice: once raw=false for dates/strings, once raw=true for clean numbers
+    const rowsStr = XLSX.utils.sheet_to_json(wsS, {header:1, defval:'', raw:false});
+    const rowsNum = XLSX.utils.sheet_to_json(wsS, {header:1, defval:0,  raw:true });
+
+    if(rowsStr.length > 1){
+      // ── Find qty & amt columns: scan first 50 data rows.
+      //    Collect columns where values are consistently positive numbers.
+      //    The LAST two such columns (rightmost) = qty then amt.
+      const ncols = (rowsStr.slice(1,5).find(r=>r&&r.length>3)||[]).length || 20;
+      const numHits = new Array(ncols).fill(0);
+      const numSum  = new Array(ncols).fill(0);
+      for(let i=1; i<=Math.min(50,rowsStr.length-1); i++){
+        const row = rowsNum[i]; if(!row) continue;
+        for(let c=0; c<ncols; c++){
+          const v = parseFloat(String(row[c]||'').replace(/,/g,''));
+          if(!isNaN(v) && v>0){ numHits[c]++; numSum[c]+=v; }
+        }
+      }
+      // Rightmost columns with >5 hits = numeric data columns
+      const numericCols = [];
+      for(let c=ncols-1; c>=0; c--){
+        if(numHits[c]>5) numericCols.push(c);
+        if(numericCols.length>=2) break;
+      }
+      // numericCols[0]=rightmost(amt), numericCols[1]=second-from-right(qty)
+      const amtCol = numericCols[0] ?? 13;
+      const qtyCol = numericCols[1] ?? 12;
+
+      console.log('[Frutta KA-fix] amtCol='+amtCol+' qtyCol='+qtyCol+' ncols='+ncols);
+
+      // ── Main row loop ──
+      for(let i=1; i<rowsStr.length; i++){
+        const rowS = rowsStr[i];  // strings
+        const rowN = rowsNum[i];  // numbers
+        if(!rowS || !rowS.length) continue;
+
+        // Parse date from col 0 (always)
+        let date = rowS[0];
+        if(date instanceof Date) date = date.toISOString().split('T')[0];
+        else { date = String(date||'').split('T')[0].split(' ')[0].trim(); }
+        if(!date || date.length<6 || date==='null' || date==='0') continue;
+
+        // ── Find rep code: scan EVERY column ──
+        // CRITICAL: rep codes always contain digits (e.g. NORSR1003, LAGSR1071, KATEE1238)
+        // Region-name cells like 'NORTH','LAGOS' also match rgnFromCode but have NO digits
+        // — must require at least one digit to avoid grabbing region names as rep codes
+        let code='', codeCol=-1;
+        for(let c=0; c<rowS.length; c++){
+          const v = String(rowS[c]||'').trim();
+          if(!v || v.length<4 || v.length>20) continue;
+          if(v.startsWith('=') || /\s/.test(v)) continue;
+          const vU = v.toUpperCase();
+          // Skip obvious non-codes
+          if(['CODE','SR CODE','REP CODE','LOGIN','DATE','NAME','CUSTOMER','QTY','AMOUNT'].includes(vU)) continue;
+          // Must contain at least one digit — filters out plain region names (NORTH, LAGOS, etc.)
+          if(!/\d/.test(v)) continue;
+          if(rgnFromCode(vU)){
+            code=v; codeCol=c; break;
+          }
+        }
+
+        // ── KA fallback: if no KAT* code found, check Login Code col (index 18) ──
+        // KA rows use numeric salesman_code which doesn't match rgnFromCode
+        if(!code){
+          const loginCode = String(rowS[18]||'').trim();
+          if(loginCode && rgnFromCode(loginCode.toUpperCase())){
+            code = loginCode; codeCol = 18;
+          }
+        }
+        // Secondary fallback: try numeric salesman_code → bridge lookup
+        if(!code){
+          const numSc = String(rowS[1]||'').trim();
+          if(numericToLogin[numSc]){
+            code = numericToLogin[numSc]; codeCol = 1;
+          }
+        }
+        if(!code) continue;
+
+        // Derive region from code — this is the ONLY source of truth
+        const rgn = rgnFromCode(code.toUpperCase());
+        if(!rgn || !REGIONS.includes(rgn)) continue;
+
+        // Name: from fulname col[2] which is always the rep's full name
+        const name = String(rowS[2]||'').trim();
+
+        // Customer = col[4] = cust_name (col[3] is cust_code numeric — skip it)
+        let cust = String(rowS[4]||'').trim();
+        // Fallback scan if col[4] is empty
+        if(!cust){
+          for(let c=1; c<Math.min(rowS.length, amtCol); c++){
+            const v=String(rowS[c]||'').trim();
+            if(v && v!==code && v!==name && !rgnFromCode(v.toUpperCase()) && isNaN(parseFloat(v)) && v.length>2 && !/^\d{10,}$/.test(v)){
+              cust=v; break;
+            }
+          }
+        }
+
+        // Qty and Amt — use the detected rightmost numeric columns
+        const qty = parseFloat(String(rowN[qtyCol]||'0').replace(/,/g,'')) || 0;
+        const amt = parseFloat(String(rowN[amtCol]||'0').replace(/,/g,'')) || 0;
+
+        // Skip if both are zero (blank/header rows)
+        if(amt===0 && qty===0) continue;
+
+        codeToRgn[code] = rgn;
+        const login = codeToLogin[code] || '';
+        const asm   = loginToASM[code] || loginToASM[login] || (reps[code]&&reps[code].asm) || '';
+
+        // ── Accumulate ──
+        reg[rgn].revenue += amt;
+        reg[rgn].cases   += qty;
+        if(cust) reg[rgn].custsSold.add(cust);
+
+        if(!daily[rgn]) daily[rgn]={};
+        daily[rgn][date] = (daily[rgn][date]||0) + amt;
+        dailyAll[date]   = (dailyAll[date]||0) + amt;
+
+        ensureRep(code, rgn, name, asm);
+        reps[code].revenue += amt;
+        reps[code].cases   += qty;
+        if(cust) reps[code].custsSold.add(cust);
+        // MTD attendance: made at least one sale = was active in the field
+        reg[rgn].att.add(code);
+
+        // ── Brand / Channel / SKU intelligence ──
+        const brand   = String(rowS[17]||'').trim() || 'Unknown';
+        const channel = String(rowS[9] ||'').trim() || 'Unknown';
+        const skuDesc = String(rowS[11]||'').trim() || 'Unknown';
+
+        if(!brands[brand])   brands[brand]  ={revenue:0,cases:0};
+        brands[brand].revenue+=amt; brands[brand].cases+=qty;
+
+        if(!channels[channel]) channels[channel]={revenue:0,cases:0};
+        channels[channel].revenue+=amt; channels[channel].cases+=qty;
+
+        if(!skus[skuDesc]) skus[skuDesc]={brand,revenue:0,cases:0};
+        skus[skuDesc].revenue+=amt; skus[skuDesc].cases+=qty;
+
+        if(!chanByRgn[rgn]) chanByRgn[rgn]={};
+        chanByRgn[rgn][channel] = (chanByRgn[rgn][channel]||0)+amt;
+
+        if(!brandByRgn[rgn]) brandByRgn[rgn]={};
+        brandByRgn[rgn][brand] = (brandByRgn[rgn][brand]||0)+amt;
+      }
+
+      // Debug: log KA totals so you can verify in browser console
+      console.log('[Frutta KA-fix] ✓ KA Revenue:', reg['Key Acct'].revenue.toLocaleString());
+      console.log('[Frutta KA-fix] ✓ KA Cases:', reg['Key Acct'].cases);
+      console.log('[Frutta KA-fix] ✓ KA Customers:', reg['Key Acct'].custsSold.size);
+      console.log('[Frutta KA-fix] ✓ KA Rep codes found:', Object.keys(reps).filter(c=>reps[c].region==='Key Acct'));
+      console.log('[Frutta KA-fix] ✓ All region revenues:', Object.fromEntries(REGIONS.map(r=>[r, reg[r].revenue])));
+    }
+  }
+
+  /* ── FINAL PASS: back-fill missing ASM / name ── */
+  for(const code of Object.keys(reps)){
+    if(!reps[code].asm){
+      const login = codeToLogin[code] || '';
+      reps[code].asm = loginToASM[code] || loginToASM[login] || '';
+    }
+    if(!reps[code].name){
+      const login = codeToLogin[code] || '';
+      reps[code].name = loginToName[code] || loginToName[login] || '';
+    }
+  }
+
+  /* ── Finalise region stats ── */
+  // Final resolve pass: convert login IDs in att to sales codes where possible.
+  // If no bridge match found, keep the original ID — dropping it causes undercounts.
+  for(const r of REGIONS){
+    const resolved = new Set();
+    for(const id of reg[r].att){
+      const code = loginToCode[id] || (rgnFromCode(id) ? id : null) || id;
+      resolved.add(code);
+    }
+    reg[r].att = resolved;
+  }
+  for(const r of REGIONS){
+    // attCount: only non-manager codes in the attendance set
+    reg[r].attCount  = [...reg[r].att].filter(code=>!isManagerCode(code)).length;
+    reg[r].metCount  = reg[r].outlets.size;
+    reg[r].soldCount = reg[r].custsSold.size;
+    // metCount must be >= soldCount (can't sell to more than you visited)
+    if(reg[r].metCount < reg[r].soldCount) reg[r].metCount = reg[r].soldCount;
+    reg[r].conv = reg[r].metCount>0 ? Math.min(reg[r].soldCount/reg[r].metCount*100, 100) : 0;
+  }
+  for(const code of Object.keys(reps)){
+    const rep = reps[code];
+    rep.outletCount = rep.outlets   instanceof Set ? rep.outlets.size   : 0;
+    rep.soldCount   = rep.custsSold instanceof Set ? rep.custsSold.size : 0;
+    // A rep cannot sell to more customers than they visited — floor outletCount at soldCount
+    if(rep.outletCount < rep.soldCount) rep.outletCount = rep.soldCount;
+    rep.conv = rep.outletCount>0 ? Math.min(rep.soldCount/rep.outletCount*100, 100) : 0;
+    // Compliance: unique outlets visited vs 220 target
+    rep.compliance = Math.min(rep.outletCount / COMPLIANCE_TARGET * 100, 100);
+  }
+  // Region compliance = average of non-manager reps in region
+  for(const r of REGIONS){
+    const regionReps = Object.values(reps).filter(rep=>rep.region===r && !rep.isManager);
+    reg[r].compliance = regionReps.length>0
+      ? regionReps.reduce((s,rep)=>s+rep.compliance,0) / regionReps.length
+      : 0;
+    reg[r].compliantCount = regionReps.filter(rep=>rep.compliance>=100).length;
+  }
+
+  const tv = Object.values(reg).reduce((s,r)=>s+r.revenue, 0);
+  const tc = Object.values(reg).reduce((s,r)=>s+r.cases,   0);
+  const ta = REGIONS.reduce((s,r)=>s+reg[r].attCount,  0);  // already excludes managers
+  const tm = REGIONS.reduce((s,r)=>s+reg[r].metCount,  0);
+  const ts = REGIONS.reduce((s,r)=>s+reg[r].soldCount, 0);
+  // Manager summary for transparency (logged in toast/console)
+  const managerCodes = Object.keys(reps).filter(c=>reps[c].isManager);
+  console.log('[Frutta] Managers excluded from rep metrics:', managerCodes);
+  console.log('[Frutta] MTD Attendance per region (after manager exclusion):',
+    Object.fromEntries(REGIONS.map(r=>[r, {
+      attRaw: reg[r].att.size,
+      attCount: reg[r].attCount,
+      managersInAtt: [...reg[r].att].filter(c=>isManagerCode(c)),
+    }])));
+
+  // Debug summary
+  console.log('[Frutta v7-KA-fix] Parse complete. Regions:', 
+    Object.fromEntries(REGIONS.map(r=>[r,{rev:reg[r].revenue, cases:reg[r].cases, att:reg[r].attCount, reps:Object.values(reps).filter(x=>x.region===r).length}])));
+  console.log('[Frutta v6] Total reps in reps{}:', Object.keys(reps).length, '| Sample codes:', Object.keys(reps).slice(0,10));
+
+  /* ── Parse working days from Time gone sheet ── */
+  let workDaysInMonth=23, workDaysGone=23, workDaysLeft=0, daysInMonth=28;
+  const wsTG = wb.Sheets['Time gone'];
+  if(wsTG){
+    const tgRows = XLSX.utils.sheet_to_json(wsTG,{header:1,defval:null});
+    tgRows.forEach(function(r){
+      if(!r) return;
+      const label = String(r[6]||'').toLowerCase();
+      const val   = parseFloat(r[5]);
+      if(!isNaN(val)){
+        if(label.includes('days in the month')) daysInMonth    = val;
+        if(label.includes('working days'))      workDaysInMonth= val;
+        if(label.includes('days gone'))         workDaysGone   = val;
+        if(label.includes('balance'))           workDaysLeft   = Math.max(0,val);
+      }
+    });
+  }
+
+  return {overall:{revenue:tv,cases:tc,att:ta,met:tm,sold:ts},
+    regions:reg, reps, daily, dailyAll,
+    intel:{brands, channels, skus, chanByRgn, brandByRgn, workDaysInMonth, workDaysGone, workDaysLeft, daysInMonth}};
+}
+
+/* ═══════════════════════════ ASM-FILTERED HELPERS ════════════ */
+function fReps(rgn, includeManagers){
+  return Object.entries(D.reps)
+    .filter(([code,r])=>
+      (!rgn||r.region===rgn) &&
+      (!activeASM||r.asm===activeASM) &&
+      (includeManagers || !r.isManager)   // exclude ASMs & KA managers by default
+    )
+    .map(([code,r])=>({code,...r}))
+    .sort((a,b)=>b.revenue-a.revenue);
+}
+function fRegion(rgn){
+  if(!activeASM) return D.regions[rgn];
+  const reps=fReps(rgn);
+  // Use Sets to deduplicate shared customers across reps — summing per-rep counts
+  // double-counts customers visited/sold by more than one rep in the same ASM group
+  const metSet=new Set(), soldSet=new Set();
+  reps.forEach(r=>{
+    if(r.outlets instanceof Set) r.outlets.forEach(c=>metSet.add(c));
+    else if(r.outletCount>0){ /* fallback: already finalised */ }
+    if(r.custsSold instanceof Set) r.custsSold.forEach(c=>soldSet.add(c));
+  });
+  const metCount = Math.max(metSet.size, soldSet.size); // metCount >= soldCount always
+  const soldCount = soldSet.size;
+  const compliance = reps.length>0 ? reps.reduce((s,r)=>s+(r.compliance||0),0)/reps.length : 0;
+  const compliantCount = reps.filter(r=>(r.compliance||0)>=100).length;
+  return{
+    revenue:reps.reduce((s,r)=>s+r.revenue,0),
+    cases:reps.reduce((s,r)=>s+r.cases,0),
+    soldCount, metCount,
+    attCount:reps.length,
+    conv:metCount>0?Math.min(soldCount/metCount*100,100):0,
+    compliance, compliantCount,
+  };
+}
+function fOverall(){
+  if(!activeASM) return D.overall;
+  const reps=fReps(null);
+  const metSet=new Set(), soldSet=new Set();
+  reps.forEach(r=>{
+    if(r.outlets instanceof Set) r.outlets.forEach(c=>metSet.add(c));
+    if(r.custsSold instanceof Set) r.custsSold.forEach(c=>soldSet.add(c));
+  });
+  const met  = Math.max(metSet.size, soldSet.size);
+  const sold = soldSet.size;
+  return{
+    revenue:reps.reduce((s,r)=>s+r.revenue,0),
+    cases  :reps.reduce((s,r)=>s+r.cases,0),
+    att    :reps.length, met, sold,
+  };
+}
+function asmBadge(el){
+  if(activeASM){el.textContent='ASM: '+activeASM;el.style.display='';}
+  else el.style.display='none';
+}
+
+/* ═══════════════════════════ CHART UTILS ════════════════════ */
+function getThemeColors(){
+  const isLight = document.body.classList.contains('light-mode');
+  return {
+    grid: isLight ? '#c4d8cc' : '#1e3045',
+    tick: isLight ? '#5a8070' : '#4a7a6a',
+    ttBg: isLight ? '#ffffff' : '#0c1117',
+    ttBdr:isLight ? '#c4d8cc' : '#1e3045',
+    ttTtl:isLight ? '#5a8070' : '#4a7a6a',
+    ttBdy:isLight ? '#0d1f18' : '#e8f4f0',
+  };
+}
+const CO={
+  responsive:true,maintainAspectRatio:false,
+  plugins:{legend:{display:false},tooltip:{backgroundColor:'#0c1117',borderColor:'#1e3045',borderWidth:1,titleColor:'#4a7a6a',bodyColor:'#e8f4f0',titleFont:{family:'Space Mono,monospace',weight:'700',size:10},bodyFont:{family:'Space Mono,monospace',weight:'700',size:11}}},
+  scales:{
+    x:{grid:{color:'#1e3045'},ticks:{color:'#4a7a6a',font:{size:10,family:'Space Mono,monospace',weight:'700'}}},
+    y:{grid:{color:'#1e3045'},ticks:{color:'#4a7a6a',font:{size:10,family:'Space Mono,monospace',weight:'700'},callback:v=>Number(v).toLocaleString()}},
+  }
+};
+function killCh(id){if(CH[id]){CH[id].destroy();delete CH[id];}}
+function barCh(id,labels,data,colors){
+  killCh(id);
+  const el=document.getElementById(id); if(!el) return;
+  const tc=getThemeColors();
+  const opts=JSON.parse(JSON.stringify(CO));
+  opts.scales.x.grid.color=tc.grid; opts.scales.x.ticks.color=tc.tick;
+  opts.scales.y.grid.color=tc.grid; opts.scales.y.ticks.color=tc.tick;
+  opts.plugins.tooltip.backgroundColor=tc.ttBg; opts.plugins.tooltip.borderColor=tc.ttBdr;
+  opts.plugins.tooltip.titleColor=tc.ttTtl; opts.plugins.tooltip.bodyColor=tc.ttBdy;
+  // Data labels on top of each bar
+  const colArr = Array.isArray(colors)?colors:labels.map(()=>colors);
+  opts.plugins.datalabels = {
+    anchor:'end', align:'end', offset:2,
+    font:{size:9, family:'Space Mono,monospace', weight:'700'},
+    color: colArr,
+    formatter:(v)=>{
+      if(v===null||v===undefined) return '';
+      if(v>=1000000) return '₦'+(v/1000000).toFixed(1)+'M';
+      if(v>=1000) return v>=100000?'₦'+(v/1000).toFixed(0)+'k':'₦'+(v/1000).toFixed(1)+'k';
+      return Number(v).toLocaleString();
+    },
+    clip:false,
+  };
+  // Give extra space at top so labels don't get cut off
+  opts.layout = {padding:{top:20}};
+  CH[id]=new Chart(el,{type:'bar',
+    data:{labels,datasets:[{data,
+      backgroundColor:colArr.map(c=>c+'44'),
+      borderColor:colArr,borderWidth:2,borderRadius:7,borderSkipped:false,
+      datalabels:{color:colArr}}]},
+    options:opts,
+    plugins:[ChartDataLabels]});
+}
+function lineCh(id,labels,series){
+  killCh(id);
+  const el=document.getElementById(id); if(!el) return;
+  const tc=getThemeColors();
+  const opts=JSON.parse(JSON.stringify(CO));
+  opts.scales.x.grid.color=tc.grid; opts.scales.x.ticks.color=tc.tick;
+  opts.scales.y.grid.color=tc.grid; opts.scales.y.ticks.color=tc.tick;
+  opts.plugins.tooltip.backgroundColor=tc.ttBg; opts.plugins.tooltip.borderColor=tc.ttBdr;
+  opts.plugins.tooltip.titleColor=tc.ttTtl; opts.plugins.tooltip.bodyColor=tc.ttBdy;
+  opts.plugins.legend={display:series.length>1,labels:{color:tc.tick,font:{size:10,family:'Space Mono,monospace',weight:'700'},boxWidth:12}};
+  // Data labels on line points (show value, skip nulls/zeros to avoid clutter)
+  opts.plugins.datalabels = {
+    align:'top', anchor:'center', offset:4,
+    font:{size:8, family:'Space Mono,monospace', weight:'700'},
+    color: series.length===1 ? series[0].color : (ctx)=>series[ctx.datasetIndex]?.color||tc.tick,
+    formatter:(v)=>{
+      if(!v) return '';
+      if(v>=1000000) return '₦'+(v/1000000).toFixed(1)+'M';
+      if(v>=1000) return v>=100000?'₦'+(v/1000).toFixed(0)+'k':'₦'+(v/1000).toFixed(1)+'k';
+      return Number(v).toLocaleString();
+    },
+    // Only show label on every other point if many labels to avoid clutter
+    display:(ctx)=>{
+      const total = ctx.chart.data.labels.length;
+      return total<=10 ? true : ctx.dataIndex % Math.ceil(total/10) === 0;
+    },
+    clip:false,
+  };
+  opts.layout = {padding:{top:22}};
+  CH[id]=new Chart(el,{type:'line',
+    data:{labels,datasets:series.map(s=>({
+      label:s.label,data:s.data,borderColor:s.color,
+      backgroundColor:s.color+'15',fill:true,tension:.4,
+      pointRadius:4,pointBackgroundColor:s.color,borderWidth:2
+    }))},options:opts,
+    plugins:[ChartDataLabels]});
+}
+const fm=n=>'₦'+Number(n||0).toLocaleString('en-NG',{maximumFractionDigits:0});
+const fn=n=>Number(n||0).toLocaleString();
+const fp=n=>Number(n||0).toFixed(1)+'%';
+function cbadge(p){
+  const cls=p>=65?'cg-ok':p>=40?'cg-md':'cg-lo';
+  return`<span class="cbadge ${cls}">${fp(p)}</span>`;
+}
+function compbadge(v){
+  // Compliance badge with inline mini bar — green≥100%, amber≥75%, orange≥50%, red<50%
+  const c=v>=100?'var(--grn)':v>=75?'var(--amb)':v>=50?'#ff8c00':'var(--red)';
+  const pct=Math.min(v,100);
+  const label = v>=100?'✓ MET':''+fp(pct);
+  return `<span style="display:inline-flex;align-items:center;gap:5px">
+    <span style="font-family:var(--fm);font-size:11px;font-weight:700;color:${c};min-width:52px">${label}</span>
+    <span style="display:inline-block;width:48px;height:4px;background:var(--bdr);border-radius:2px;overflow:hidden;vertical-align:middle">
+      <span style="display:block;width:${pct}%;height:100%;background:${c};border-radius:2px;transition:width .4s"></span>
+    </span>
+  </span>`;
+}
+function prog(pct,color){
+  pct=Math.min(pct,100);
+  return`<div class="prog"><div class="prog-track"><div class="prog-fill" style="width:${pct}%;background:${color}"></div></div><span class="prog-v" style="color:${color}">${pct.toFixed(1)}%</span></div>`;
+}
+
+/* ═══════════════════════════ RENDER ALL ════════════════════ */
+function renderAll(){renderOV();renderGMD();for(const r of REGIONS)renderRgn(r);renderIntel();}
+function renderView(id){
+  if(id==='ov') renderOV();
+  else if(id==='gmd') renderGMD();
+  else if(id==='intel') renderIntel();
+  else{const r=Object.entries(RK).find(([,k])=>k===id)?.[0]; if(r) renderRgn(r);}
+}
+
+/* ═══════════════════════════ OVERVIEW ════════════════════════ */
+function renderOV(){
+  document.getElementById('ov-empty').style.display='none';
+  document.getElementById('ov-body').style.display='';
+  asmBadge(document.getElementById('ov-asm'));
+  const o=fOverall();
+  const dates=Object.keys(D.dailyAll).sort();
+  if(dates.length) document.getElementById('ov-period').textContent=dates[0]+' → '+dates[dates.length-1];
+  // Overall compliance = average across all reps
+  const allReps = Object.values(D.reps);
+  const overallCompliance = allReps.length>0 ? allReps.reduce((s,r)=>s+(r.compliance||0),0)/allReps.length : 0;
+  const compliantTotal = allReps.filter(r=>(r.compliance||0)>=100).length;
+  document.getElementById('ov-kpis').innerHTML=[
+    {l:'Total MTD Revenue',v:fm(o.revenue),vc:'c-g',c:'',s:'All Regions'},
+    {l:'Total Cases Sold', v:fn(o.cases),  vc:'',   c:'',s:'Units'},
+    {l:'Active Reps',      v:o.att,         vc:'',   c:'',s:'Checked in (incl. zero-rev)'},
+    {l:'Productive Reps',  v:Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length, vc:'c-g', c:'', s:'Reps with revenue > ₦0'},
+    {l:'Outlets Visited',  v:fn(o.met),     vc:'',   c:'',s:'Unique MTD'},
+    {l:'Customers Sold To',v:fn(o.sold),    vc:'c-a',c:'a',s:'Unique MTD'},
+    {l:'Drop Size',        v:(o.sold>0?(o.cases/o.sold).toFixed(1):'-')+' cs',vc:'c-p',c:'p',s:'Avg cases per customer'},
+    {l:'Overall Conv.',    v:fp(o.met>0?o.sold/o.met*100:0),vc:'',c:'',s:'Sold ÷ Visited'},
+    {l:'Avg Compliance',   v:fp(overallCompliance),vc:overallCompliance>=100?'c-g':overallCompliance>=75?'c-a':'',c:'',s:`${compliantTotal}/${allReps.length} reps at target (220)`},
+  ].map(k=>`<div class="kc ${k.c}"><div class="kc-lbl">${k.l}</div><div class="kc-val ${k.vc}">${k.v}</div><div class="kc-sub">${k.s}</div></div>`).join('');
+  const rL=REGIONS.filter(r=>r!=='Key Acct');
+  const rdL=rL.map(r=>fRegion(r)), rdA=REGIONS.map(r=>fRegion(r));
+  setTimeout(()=>{
+    barCh('c-ov-rev',rL,rdL.map(r=>r.revenue),rL.map(r=>RC[r]));
+    barCh('c-ov-cas',rL,rdL.map(r=>r.cases),rL.map(r=>RC[r]));
+    barCh('c-ov-att',REGIONS,rdA.map(r=>r.attCount),REGIONS.map(r=>RC[r]));
+    barCh('c-ov-con',REGIONS,rdA.map(r=>r.conv),REGIONS.map(r=>RC[r]));
+    barCh('c-ov-cmp',REGIONS,rdA.map(r=>r.compliance||0),REGIONS.map(r=>RC[r]));
+  },60);
+  const tv=o.revenue||1;
+  document.getElementById('ov-tbl').innerHTML=REGIONS.map(r=>{
+    const rd=fRegion(r);
+    const prodCount=fReps(r).filter(function(rep){return rep.revenue>0;}).length;
+    return`<tr>
+      <td><span style="color:${RC[r]};font-family:var(--fn);font-weight:700">${r}</span></td>
+      <td style="color:var(--grn)">${fm(rd.revenue)}</td>
+      <td>${fn(rd.cases)}</td>
+      <td style="color:var(--blu)">${rd.attCount}</td>
+      <td style="color:var(--grn);font-weight:700">${prodCount} <span style="font-size:9px;color:var(--dim)">(${rd.attCount>0?Math.round(prodCount/rd.attCount*100):0}%)</span></td>
+      <td>${fn(rd.metCount)}</td>
+      <td>${fn(rd.soldCount)}</td>
+      <td>${cbadge(rd.conv)}</td>
+      <td>${compbadge(rd.compliance||0)}</td>
+      <td>${prog(rd.revenue/tv*100,RC[r])}</td>
+    </tr>`;
+  }).join('');
+
+  /* ── TOP 3 / BOTTOM 3 REPS ── */
+  const allRepsSorted = fReps(null); // sorted by revenue desc
+  const repsWith = allRepsSorted.filter(r=>r.revenue>0);
+  if(repsWith.length>=2){
+    document.getElementById('ov-perf').style.display='';
+    const medals=['🥇','🥈','🥉'];
+    const top3 = repsWith.slice(0,3);
+    const bot3 = repsWith.slice(-3).reverse(); // worst first
+    document.getElementById('ov-top3').innerHTML = top3.map((r,i)=>`
+      <div class="perf-row">
+        <div class="perf-rank" style="color:var(--grn)">${medals[i]||('#'+(i+1))}</div>
+        <div class="perf-info">
+          <div class="perf-name">${r.name||r.code}</div>
+          <div class="perf-meta">${r.code} · ${r.region}${r.asm?' · '+r.asm:''}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="perf-rev" style="color:var(--grn)">${fm(r.revenue)}</div>
+          <div class="perf-cases">${fn(r.cases)} cases · ${fn(r.soldCount)} cust.</div>
+        </div>
+      </div>`).join('');
+    document.getElementById('ov-bot3').innerHTML = bot3.map((r,i)=>`
+      <div class="perf-row">
+        <div class="perf-rank" style="color:var(--red)">⚠</div>
+        <div class="perf-info">
+          <div class="perf-name">${r.name||r.code}</div>
+          <div class="perf-meta">${r.code} · ${r.region}${r.asm?' · '+r.asm:''}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="perf-rev" style="color:var(--red)">${fm(r.revenue)}</div>
+          <div class="perf-cases">${fn(r.cases)} cases · ${fn(r.soldCount)} cust.</div>
+        </div>
+      </div>`).join('');
+  }
+
+  /* ── TOP PERFORMING ASMs ── */
+  const asmAll = {};
+  for(const code in D.reps){
+    const rep = D.reps[code];
+    if(!rep.asm) continue;
+    if(!asmAll[rep.asm]) asmAll[rep.asm]={revenue:0,cases:0,reps:0,soldCount:0,region:rep.region};
+    asmAll[rep.asm].revenue   += rep.revenue;
+    asmAll[rep.asm].cases     += rep.cases;
+    asmAll[rep.asm].reps      += 1;
+    asmAll[rep.asm].soldCount += rep.soldCount||0;
+  }
+  // Apply ASM filter if active
+  const asmFiltered = activeASM
+    ? Object.entries(asmAll).filter(([k])=>k===activeASM)
+    : Object.entries(asmAll);
+  const asmSorted = asmFiltered
+    .map(function(e){return {name:e[0],...e[1], avgRev:e[1].reps>0?e[1].revenue/e[1].reps:0, dropSize:e[1].cases>0?e[1].revenue/e[1].cases:0};})
+    .sort(function(a,b){return b.revenue-a.revenue;});
+  const maxAsmRev = asmSorted.length>0 ? asmSorted[0].revenue : 1;
+  const medals3=['🥇','🥈','🥉'];
+  if(asmSorted.length>0){
+    document.getElementById('ov-asm-top').style.display='';
+    document.getElementById('ov-asm-top-grid').innerHTML = asmSorted.slice(0,6).map(function(a,i){
+      const pct = Math.round(a.revenue/maxAsmRev*100);
+      const rgnColor = RC[a.region]||'var(--grn)';
+      return '<div class="perf-panel" style="padding:16px 18px">'
+        +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
+        +'<span style="font-size:18px">'+(medals3[i]||'')+'</span>'
+        +'<div style="flex:1">'
+        +'<div style="font-family:var(--fb);font-size:13px;font-weight:700;line-height:1.2">'+a.name+'</div>'
+        +'<div style="font-family:var(--fm);font-size:9px;color:'+rgnColor+';margin-top:2px;text-transform:uppercase;letter-spacing:1px">'+a.region+' · '+a.reps+' rep'+(a.reps!==1?'s':'')+'</div>'
+        +'</div>'
+        +'<div style="text-align:right">'
+        +'<div style="font-family:var(--fn);font-size:15px;font-weight:700;color:var(--grn)">'+fm(a.revenue)+'</div>'
+        +'</div>'
+        +'</div>'
+        +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">'
+        +'<div style="background:var(--s2);border-radius:6px;padding:6px 8px">'
+        +'<div style="font-family:var(--fm);font-size:8px;color:var(--dim);text-transform:uppercase;letter-spacing:1px">Avg/Rep</div>'
+        +'<div style="font-family:var(--fn);font-size:12px;font-weight:700;color:var(--pur)">'+fm(Math.round(a.avgRev))+'</div>'
+        +'</div>'
+        +'<div style="background:var(--s2);border-radius:6px;padding:6px 8px">'
+        +'<div style="font-family:var(--fm);font-size:8px;color:var(--dim);text-transform:uppercase;letter-spacing:1px">Drop Size</div>'
+        +'<div style="font-family:var(--fn);font-size:12px;font-weight:700;color:var(--amb)">'+(a.soldCount>0?(a.cases/a.soldCount).toFixed(1):'-')+' cs</div>'
+        +'</div>'
+        +'</div>'
+        +'<div style="background:var(--bdr);border-radius:3px;height:4px;overflow:hidden">'
+        +'<div style="width:'+pct+'%;height:100%;background:'+rgnColor+';border-radius:3px;transition:width .4s ease"></div>'
+        +'</div>'
+        +'</div>';
+    }).join('');
+  }
+
+  /* ── LEAST 3 ASMs PER REGION — ranked by avg revenue per rep ── */
+  // Only shown when a region has 4+ ASMs so the flagging is meaningful and fair.
+  // West (3 ASMs) and any other small regions are excluded — calling out 3 of 3 is unfair.
+  const asmRevByRegion = {};
+  for(const code in D.reps){
+    const rep = D.reps[code];
+    if(!rep.asm || !rep.region) continue;
+    if(!asmRevByRegion[rep.region]) asmRevByRegion[rep.region]={};
+    if(!asmRevByRegion[rep.region][rep.asm]) asmRevByRegion[rep.region][rep.asm]={revenue:0,cases:0,reps:0};
+    asmRevByRegion[rep.region][rep.asm].revenue += rep.revenue;
+    asmRevByRegion[rep.region][rep.asm].cases   += rep.cases;
+    asmRevByRegion[rep.region][rep.asm].reps    += 1;
+  }
+  let asmFlagHtml='';
+  for(const rgn of REGIONS){
+    const asmMap = asmRevByRegion[rgn];
+    if(!asmMap) continue;
+    const sorted = Object.entries(asmMap)
+      .map(function(e){ return {name:e[0], revenue:e[1].revenue, cases:e[1].cases, reps:e[1].reps, avgRev: e[1].reps>0 ? e[1].revenue/e[1].reps : 0}; })
+      .sort(function(a,b){return a.avgRev-b.avgRev;}); // asc = worst avg first
+    const totalAsms = sorted.length;
+    if(totalAsms < 2) continue; // need at least 2 ASMs to have a meaningful comparison
+    const flagCount = Math.min(3, Math.ceil(totalAsms / 2)); // flag bottom half, max 3
+    const worst = sorted.slice(0, flagCount);
+    const rgnLabel = rgn==='Key Acct'?'KEY ACCOUNT':rgn;
+    const rowsHtml = worst.map(function(d,i){
+      const pctOfTop = sorted[sorted.length-1].avgRev > 0 ? Math.round(d.avgRev / sorted[sorted.length-1].avgRev * 100) : 0;
+      return '<div class="asm-flag-row">'
+        +'<div class="asm-flag-pos">'+(i+1)+'</div>'
+        +'<div class="asm-flag-info">'
+        +'<div class="asm-flag-name">'+d.name+'</div>'
+        +'<div class="asm-flag-sub">'+d.reps+' rep'+(d.reps!==1?'s':'')+' \xb7 avg '+fm(Math.round(d.avgRev))+'/rep \xb7 '+pctOfTop+'% of top ASM</div>'
+        +'</div>'
+        +'<div class="asm-flag-rev">'+fm(d.revenue)+'</div>'
+        +'</div>';
+    }).join('');
+    asmFlagHtml += '<div class="asm-flag-panel">'
+      +'<div class="asm-flag-hd">'
+      +'<div class="asm-flag-region" style="color:'+RC[rgn]+'">'+rgnLabel+'</div>'
+      +'<span class="asm-flag-tag">\u26a0 LOWER PERFORMERS ('+totalAsms+' ASMs)</span>'
+      +'</div>'
+      +rowsHtml
+      +'</div>';
+  }
+  if(asmFlagHtml){
+    document.getElementById('ov-asmflag').style.display='';
+    document.getElementById('ov-asmflag-grid').innerHTML=asmFlagHtml;
+  } else {
+    document.getElementById('ov-asmflag').style.display='none';
+  }
+}
+
+/* ═══════════════════════════ GMD ════════════════════════════ */
+function renderGMD(){
+  document.getElementById('gmd-empty').style.display='none';
+  document.getElementById('gmd-body').style.display='';
+  asmBadge(document.getElementById('gmd-asm'));
+  const o=fOverall();
+  const rdMap={}; REGIONS.forEach(r=>rdMap[r]=fRegion(r));
+  const topR=REGIONS.reduce((b,r)=>rdMap[r].revenue>rdMap[b].revenue?r:b,REGIONS[0]);
+  document.getElementById('gmd-hl').textContent=`${topR} leads with ${fm(rdMap[topR].revenue)} MTD`;
+  document.getElementById('gmd-sub').textContent=`${o.att} reps active · ${fn(o.sold)} customers served · Conv: ${fp(o.met>0?o.sold/o.met*100:0)}`;
+
+  /* ── KPI cards ── */
+  const I=D.intel;
+  const daysGone=I.workDaysGone||1, daysTotal=I.workDaysInMonth||23, daysInMth=I.daysInMonth||28;
+  const wDaysElapsed=Math.min(daysGone,daysTotal);
+  const dailyRun=o.revenue/Math.max(wDaysElapsed,1);
+  const projected=Math.round(dailyRun*daysInMth);
+  const overallDropSize=o.sold>0?(o.cases/o.sold).toFixed(1)+' cs':'—';
+  document.getElementById('gmd-kpis').innerHTML=[
+    {l:'MTD Total Revenue',v:fm(o.revenue),vc:'c-a',c:'a',s:'All regions combined'},
+    {l:'Projected Month-End',v:fm(projected),vc:'c-g',c:'',s:'Run rate × '+daysInMth+' days'},
+    {l:'Total Cases',v:fn(o.cases),vc:'',c:'',s:'Units sold MTD'},
+    {l:'Active Reps',v:o.att,vc:'c-b',c:'b',s:'Checked in (incl. zero-rev)'},
+    {l:'Productive Reps',v:Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length,vc:'c-g',c:'',s:'Reps with revenue > ₦0'},
+    {l:'Customers Sold',v:fn(o.sold),vc:'c-g',c:'',s:'Unique MTD'},
+    {l:'Conv. Rate',v:fp(o.met>0?o.sold/o.met*100:0),vc:'c-p',c:'p',s:'Sold ÷ Outlets visited'},
+    {l:'Drop Size',v:overallDropSize,vc:'c-p',c:'p',s:'Avg cases per customer'},
+    {l:'Daily Run Rate',v:fm(Math.round(dailyRun)),vc:'c-a',c:'a',s:'Avg per working day'},
+  ].map(k=>`<div class="kc ${k.c}"><div class="kc-lbl">${k.l}</div><div class="kc-val ${k.vc}">${k.v}</div><div class="kc-sub">${k.s||''}</div></div>`).join('');
+
+  /* ── MOMENTUM CARD ── */
+  // Split daily revenue into first-half and second-half of working days to detect acceleration
+  const allDates = Object.keys(D.dailyAll).sort();
+  const midpoint = Math.floor(allDates.length / 2);
+  const firstHalf  = allDates.slice(0, midpoint);
+  const secondHalf = allDates.slice(midpoint);
+  const firstHalfRev  = firstHalf.reduce((s,d)=>s+(D.dailyAll[d]||0), 0);
+  const secondHalfRev = secondHalf.reduce((s,d)=>s+(D.dailyAll[d]||0), 0);
+  const firstHalfAvg  = firstHalf.length  ? firstHalfRev  / firstHalf.length  : 0;
+  const secondHalfAvg = secondHalf.length ? secondHalfRev / secondHalf.length : 0;
+  // Momentum: % change from first half avg to second half avg
+  const momentumPct = firstHalfAvg > 0 ? ((secondHalfAvg - firstHalfAvg) / firstHalfAvg) * 100 : 0;
+  const isAccel = momentumPct >= 5;
+  const isFlat  = Math.abs(momentumPct) < 5;
+  const momentumColor = isAccel ? 'var(--grn)' : isFlat ? 'var(--amb)' : 'var(--red)';
+  const momentumIcon  = isAccel ? '↑' : isFlat ? '→' : '↓';
+  const momentumWord  = isAccel ? 'ACCELERATING' : isFlat ? 'STEADY' : 'DECELERATING';
+  // Best and worst single days
+  const dayEntries = allDates.map(d=>({d, v:D.dailyAll[d]||0})).filter(e=>e.v>0);
+  const bestDay  = dayEntries.reduce((b,e)=>e.v>b.v?e:b, dayEntries[0]||{d:'—',v:0});
+  const worstDay = dayEntries.reduce((b,e)=>e.v<b.v?e:b, dayEntries[0]||{d:'—',v:0});
+  // Last 3 days trend arrow — are the most recent days above or below the overall daily avg?
+  const last3 = allDates.slice(-3).map(d=>D.dailyAll[d]||0);
+  const last3Avg = last3.length ? last3.reduce((a,b)=>a+b,0)/last3.length : 0;
+  const recentVsAvg = dailyRun > 0 ? ((last3Avg - dailyRun) / dailyRun) * 100 : 0;
+  const recentColor = recentVsAvg >= 5 ? 'var(--grn)' : recentVsAvg >= -5 ? 'var(--amb)' : 'var(--red)';
+  const recentLabel = recentVsAvg >= 5 ? 'Above avg' : recentVsAvg >= -5 ? 'Around avg' : 'Below avg';
+  // Revenue per rep per day — first half vs second half (only when we have att data)
+  // We use overall att count as proxy since we don't have daily att splits
+  const revPerRepDay = o.att > 0 ? Math.round(dailyRun / o.att) : 0;
+  const prodRepCount = Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length;
+  const revPerProdRepDay = prodRepCount > 0 ? Math.round(dailyRun / prodRepCount) : 0;
+
+  document.getElementById('gmd-pace').innerHTML=`
+    <div class="cc" style="padding:0;overflow:hidden">
+      <!-- Header momentum banner -->
+      <div style="padding:20px 26px 18px;border-bottom:1px solid var(--bdr);background:linear-gradient(135deg,${isAccel?'rgba(0,229,160,.06)':isFlat?'rgba(245,166,35,.06)':'rgba(255,71,87,.06)'},transparent);display:flex;align-items:center;gap:20px">
+        <div style="font-family:var(--fn);font-size:52px;font-weight:800;line-height:1;color:${momentumColor}">${momentumIcon}</div>
+        <div style="flex:1">
+          <div style="font-family:var(--fn);font-size:20px;font-weight:800;color:${momentumColor}">${momentumWord}</div>
+          <div style="font-family:var(--fm);font-size:11px;color:var(--dim);font-weight:700;margin-top:4px">
+            ${allDates.length < 4 ? 'Not enough days to split yet' :
+              `Second half avg ${fm(Math.round(secondHalfAvg))}/day vs first half avg ${fm(Math.round(firstHalfAvg))}/day`}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:var(--fn);font-size:28px;font-weight:800;color:${momentumColor}">${momentumPct>=0?'+':''}${momentumPct.toFixed(1)}%</div>
+          <div style="font-family:var(--fm);font-size:9px;color:var(--dim);font-weight:700;letter-spacing:1px;text-transform:uppercase">Avg daily rev shift</div>
+        </div>
+      </div>
+      <!-- Stat grid -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0">
+        <div style="padding:18px 22px;border-right:1px solid var(--bdr)">
+          <div style="font-family:var(--fm);font-size:9px;letter-spacing:2px;color:var(--dim);font-weight:700;text-transform:uppercase;margin-bottom:8px">Daily Run Rate</div>
+          <div style="font-family:var(--fn);font-size:22px;font-weight:800;color:var(--grn)">${fm(Math.round(dailyRun))}</div>
+          <div style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700;margin-top:5px">Avg over ${wDaysElapsed} working days</div>
+        </div>
+        <div style="padding:18px 22px;border-right:1px solid var(--bdr)">
+          <div style="font-family:var(--fm);font-size:9px;letter-spacing:2px;color:var(--dim);font-weight:700;text-transform:uppercase;margin-bottom:8px">Last 3 Days</div>
+          <div style="font-family:var(--fn);font-size:22px;font-weight:800;color:${recentColor}">${fm(Math.round(last3Avg))}/day</div>
+          <div style="font-family:var(--fm);font-size:10px;color:${recentColor};font-weight:700;margin-top:5px">${recentLabel} (${recentVsAvg>=0?'+':''}${recentVsAvg.toFixed(1)}%)</div>
+        </div>
+        <div style="padding:18px 22px;border-right:1px solid var(--bdr)">
+          <div style="font-family:var(--fm);font-size:9px;letter-spacing:2px;color:var(--dim);font-weight:700;text-transform:uppercase;margin-bottom:8px">Best Day</div>
+          <div style="font-family:var(--fn);font-size:22px;font-weight:800;color:var(--grn)">${fm(bestDay.v)}</div>
+          <div style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700;margin-top:5px">${bestDay.d||'—'}</div>
+        </div>
+        <div style="padding:18px 22px">
+          <div style="font-family:var(--fm);font-size:9px;letter-spacing:2px;color:var(--dim);font-weight:700;text-transform:uppercase;margin-bottom:8px">Rev / Productive Rep / Day</div>
+          <div style="font-family:var(--fn);font-size:22px;font-weight:800;color:var(--pur)">${revPerProdRepDay>0?fm(revPerProdRepDay):'—'}</div>
+          <div style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700;margin-top:5px">${prodRepCount} productive of ${o.att} active</div>
+        </div>
+      </div>
+    </div>`;
+
+  /* ── REGION HEALTH RAG ── */
+  // Score each region across 3 dimensions: conv%, drop size, attendance vs prior day trend
+  const ragHtml = REGIONS.map(function(r){
+    const rd=rdMap[r];
+    const color=RC[r];
+    const convScore = rd.conv>=65?'grn':rd.conv>=40?'amb':'red';
+    const dsRaw = rd.soldCount>0?rd.cases/rd.soldCount:0;
+    const dsScore = dsRaw>=3?'grn':dsRaw>=1.5?'amb':'red';
+    const attScore = rd.attCount>=10?'grn':rd.attCount>=5?'amb':'red';
+    const scores={grn:0,amb:0,red:0};
+    [convScore,dsScore,attScore].forEach(s=>scores[s]++);
+    const overall = scores.red>=2?'red':scores.amb>=2?'amb':'grn';
+    const overallColor = overall==='grn'?'var(--grn)':overall==='amb'?'var(--amb)':'var(--red)';
+    const overallBg = overall==='grn'?'var(--grnd)':overall==='amb'?'var(--ambd)':'var(--redb)';
+    const overallBdr = overall==='grn'?'rgba(0,229,160,.25)':overall==='amb'?'rgba(245,166,35,.25)':'rgba(255,71,87,.25)';
+    const statusIcon = overall==='grn'?'🟢':overall==='amb'?'🟡':'🔴';
+    const statusWord = overall==='grn'?'HEALTHY':overall==='amb'?'MONITOR':'AT RISK';
+    function dot(s){const c=s==='grn'?'var(--grn)':s==='amb'?'var(--amb)':'var(--red)';return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};box-shadow:0 0 6px ${c}"></span>`;}
+    return `<div style="background:var(--s1);border:1px solid ${overallBdr};border-radius:var(--r);overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,.2)">
+      <div style="padding:14px 18px 10px;border-bottom:1px solid ${overallBdr};display:flex;align-items:center;gap:10px;background:${overallBg}">
+        <span style="font-size:18px">${statusIcon}</span>
+        <div>
+          <div style="font-family:var(--fn);font-size:13px;font-weight:800;color:${color}">${r==='Key Acct'?'KEY ACCOUNT':r}</div>
+          <div style="font-family:var(--fm);font-size:9px;font-weight:700;color:${overallColor};letter-spacing:1px;text-transform:uppercase;margin-top:2px">${statusWord}</div>
+        </div>
+        <div style="margin-left:auto;font-family:var(--fn);font-size:18px;font-weight:800;color:var(--grn)">${fm(rd.revenue)}</div>
+      </div>
+      <div style="padding:12px 18px;display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700">Conversion</span>
+          <span style="display:flex;align-items:center;gap:6px;font-family:var(--fn);font-size:12px;font-weight:800">${dot(convScore)} ${fp(rd.conv)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700">Drop Size</span>
+          <span style="display:flex;align-items:center;gap:6px;font-family:var(--fn);font-size:12px;font-weight:800">${dot(dsScore)} ${dsRaw>0?dsRaw.toFixed(1)+' cs':'—'}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700">Active Reps</span>
+          <span style="display:flex;align-items:center;gap:6px;font-family:var(--fn);font-size:12px;font-weight:800">${dot(attScore)} ${rd.attCount}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  document.getElementById('gmd-rag').innerHTML=ragHtml;
+
+  /* ── CHARTS ── */
+  const dates=Object.keys(D.dailyAll).sort(), dl=dates.map(d=>d.slice(5));
+  setTimeout(()=>{
+    barCh('c-gmd-rev',REGIONS,REGIONS.map(r=>rdMap[r].revenue),REGIONS.map(r=>RC[r]));
+    barCh('c-gmd-cas',REGIONS,REGIONS.map(r=>rdMap[r].cases),REGIONS.map(r=>RC[r]));
+    barCh('c-gmd-con',REGIONS,REGIONS.map(r=>rdMap[r].conv),REGIONS.map(r=>RC[r]));
+    lineCh('c-gmd-trend',dl,[
+      {label:'NORTH',data:dates.map(d=>D.daily.NORTH?.[d]||0),color:'#00e5a0'},
+      {label:'EAST', data:dates.map(d=>D.daily.EAST?.[d] ||0),color:'#a259ff'},
+      {label:'WEST', data:dates.map(d=>D.daily.WEST?.[d] ||0),color:'#f5a623'},
+      {label:'LAGOS',data:dates.map(d=>D.daily.LAGOS?.[d]||0),color:'#3d9eff'},
+    ]);
+  },60);
+
+  /* ── ENRICHED SCORECARD ── */
+  document.getElementById('gmd-tbl').innerHTML=REGIONS.map(r=>{
+    const rd=rdMap[r];
+    const ds=rd.soldCount>0?(rd.cases/rd.soldCount).toFixed(1)+' cs':'—';
+    const regDailyRun=rd.revenue/Math.max(wDaysElapsed,1);
+    const regProj=fm(Math.round(regDailyRun*daysInMth));
+    return`<tr>
+      <td style="color:${RC[r]};font-weight:800;font-family:var(--fn)">${r==='Key Acct'?'KEY ACCT':r}</td>
+      <td style="color:var(--grn);font-weight:800">${fm(rd.revenue)}</td>
+      <td style="font-weight:700">${fn(rd.cases)}</td>
+      <td style="color:var(--pur);font-weight:800">${ds}</td>
+      <td style="color:var(--blu);font-weight:700">${rd.attCount}</td>
+      <td>${cbadge(rd.conv)}</td>
+      <td style="color:var(--amb);font-weight:800">${regProj}</td>
+    </tr>`;
+  }).join('');
+
+  /* ── ROOT CAUSE BREAKDOWN — PER-REGION DIAGNOSTIC CARDS ── */
+  (function(){
+    // Company-wide benchmarks
+    const compConv      = o.met>0  ? o.sold/o.met*100 : 0;
+    const compDS        = o.sold>0 ? o.cases/o.sold    : 0;
+    const compRevRep    = o.att>0  ? o.revenue/o.att   : 0;
+    const allProdReps   = fReps(null).filter(function(r){return r.revenue>0;});
+    const compProdCount = allProdReps.length || 1;
+    const compRevProd   = o.revenue / compProdCount; // rev per PRODUCTIVE rep (company avg)
+
+    // Total roster per region (excluding managers — reps only)
+    const totalRepsByRgn = {};
+    for(const code in D.reps){
+      const rep=D.reps[code];
+      if(rep.region && !rep.isManager) totalRepsByRgn[rep.region]=(totalRepsByRgn[rep.region]||0)+1;
+    }
+
+    const tv = o.revenue||1;
+
+    const regionCards = REGIONS.map(function(r){
+      const rd    = rdMap[r];
+      const color = RC[r];
+      const share = (rd.revenue/tv*100).toFixed(1);
+
+      const ds         = rd.soldCount>0 ? rd.cases/rd.soldCount : 0;
+      const revRep     = rd.attCount>0  ? rd.revenue/rd.attCount : 0;
+      const prodReps   = fReps(r).filter(function(rep){return rep.revenue>0;}).length;
+      const revProdRep = prodReps>0     ? rd.revenue/prodReps    : 0;
+      const totalRg    = totalRepsByRgn[r] || rd.attCount;
+      const attPct     = totalRg>0 ? rd.attCount/totalRg*100 : 0;
+      const prodPct    = rd.attCount>0  ? prodReps/rd.attCount*100 : 0;
+
+      // Score outperforming: ≥2 of 3 primary metrics above company avg
+      const convWin = rd.conv    >= compConv;
+      const dsWin   = ds         >= compDS;
+      const repWin  = revProdRep >= compRevProd;   // now vs productive-rep benchmark
+      const wins    = [convWin,dsWin,repWin].filter(Boolean).length;
+      const isOut   = wins >= 2;
+
+      const statusColor = isOut ? 'var(--grn)' : 'var(--red)';
+      const statusBg    = isOut ? 'rgba(0,229,160,.07)' : 'rgba(255,71,87,.07)';
+      const statusBdr   = isOut ? 'rgba(0,229,160,.28)' : 'rgba(255,71,87,.28)';
+      const statusLabel = isOut ? 'OUTPERFORMING' : 'UNDERPERFORMING';
+      const statusDot   = isOut ? '🟢' : '🔴';
+
+      const metrics = [
+        {
+          icon: rd.conv>=compConv ? (rd.conv>=65?'✅':'🆗') : '⚠️',
+          label:'Conversion Rate',
+          value: fp(rd.conv),
+          detail: rd.met>0
+            ? fp(rd.conv)+' vs company avg '+fp(compConv)+' — '+(rd.conv>=compConv?'reps are converting well at outlet level':'reps visiting outlets but not closing sales')
+            : 'No outlet visit data',
+          good: convWin,
+        },
+        {
+          icon: ds>=compDS ? (ds>=3?'📦':'🆗') : '⬇️',
+          label:'Drop Size (Order Depth)',
+          value: ds>0 ? ds.toFixed(1)+' cs' : '—',
+          detail: ds>0
+            ? ds.toFixed(1)+' cs/customer vs avg '+compDS.toFixed(1)+' — '+(ds>=compDS?'strong order volumes per visit':'smaller baskets, push upselling')
+            : 'No drop size data',
+          good: dsWin,
+        },
+        {
+          icon: revProdRep>=compRevProd ? '🚀' : '🐢',
+          label:'Rev per Productive Rep',
+          value: fm(Math.round(revProdRep)),
+          detail: prodReps+' of '+rd.attCount+' active reps selling · '+fm(Math.round(revProdRep))+'/rep vs avg '+fm(Math.round(compRevProd))+' — '+(revProdRep>=compRevProd?'high individual output':'reps under-producing vs peers'),
+          good: repWin,
+        },
+        {
+          icon: attPct>=90 ? '👥' : attPct>=80 ? '👤' : '🚨',
+          label:'Field Attendance & Productivity',
+          value: rd.attCount+'/'+totalRg+' ('+(Math.round(attPct))+'%)',
+          detail: rd.attCount+'/'+totalRg+' checked in · '+prodReps+' productive ('+(Math.round(prodPct))+'% of active) · '+(rd.attCount-prodReps)+' zero-rev'+(attPct>=90?' · strong coverage':attPct>=80?' · some absenteeism':' · critical gap'),
+          good: attPct>=85 && prodPct>=75,
+        },
+      ];
+
+      return '<div style="background:var(--s1);border:1px solid '+statusBdr+';border-radius:var(--r);overflow:hidden;box-shadow:0 2px 20px rgba(0,0,0,.22);display:flex;flex-direction:column">'
+        // Card header
+        +'<div style="padding:16px 20px 13px;border-bottom:1px solid '+statusBdr+';background:'+statusBg+';display:flex;align-items:flex-start;gap:12px">'
+        +'<div style="flex:1">'
+        +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:'+color+';letter-spacing:.5px">'+(r==='Key Acct'?'KEY ACCOUNT':r.toUpperCase())+'</div>'
+        +'<div style="display:flex;align-items:center;gap:10px;margin-top:5px;flex-wrap:wrap">'
+        +'<span style="font-family:var(--fm);font-size:10px;font-weight:600;color:var(--dim)">'+share+'% of total</span>'
+        +'<span style="font-family:var(--fn);font-size:10px;font-weight:800;color:'+statusColor+';letter-spacing:.3px">'+statusDot+' '+statusLabel+'</span>'
+        +'</div>'
+        +'</div>'
+        +'<div style="text-align:right;flex-shrink:0">'
+        +'<div style="font-family:var(--fn);font-size:19px;font-weight:800;color:var(--grn)">'+fm(rd.revenue)+'</div>'
+        +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);font-weight:600;margin-top:2px">'+fn(rd.cases)+' cases</div>'
+        +'</div>'
+        +'</div>'
+        // Metrics list
+        +'<div style="padding:4px 0">'
+        +metrics.map(function(m,mi){
+          return '<div style="display:flex;gap:12px;align-items:flex-start;padding:12px 20px;'+(mi<metrics.length-1?'border-bottom:1px solid rgba(28,46,68,.5)':'')+'">'
+            +'<span style="font-size:20px;flex-shrink:0;margin-top:1px">'+m.icon+'</span>'
+            +'<div style="flex:1;min-width:0">'
+            +'<div style="font-family:var(--fn);font-size:9px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:3px">'+m.label+'</div>'
+            +'<div style="font-family:var(--fm);font-size:10px;color:var(--dim);line-height:1.5">'+m.detail+'</div>'
+            +'</div>'
+            +'<div style="text-align:right;flex-shrink:0;min-width:80px">'
+            +'<div style="font-family:var(--fn);font-size:17px;font-weight:800;color:'+(m.good?'var(--grn)':'var(--red)')+'">'+m.value+'</div>'
+            +'</div>'
+            +'</div>';
+        }).join('')
+        +'</div>'
+        +'</div>';
+    }).join('');
+
+    document.getElementById('gmd-rootcause').innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px">'+regionCards+'</div>';
+
+    /* ── EXECUTIVE ALERTS ── */
+    const allAttReps = fReps(null);
+    const zeroReps   = allAttReps.filter(function(r){return r.revenue===0;});
+    const alerts=[];
+    if(zeroReps.length>0){
+      const regions=[...new Set(zeroReps.map(function(r){return r.region;}))].join(', ');
+      alerts.push({sev:'red',icon:'🚨',title:zeroReps.length+' rep'+(zeroReps.length>1?'s':'')+' in attendance with zero revenue',body:'Regions affected: '+regions+'. Immediate coaching required — these reps are in the field but not converting.',action:'Review route adherence & outlet engagement'});
+    }
+    const lowConvRgns=REGIONS.filter(function(r){return rdMap[r].met>0&&rdMap[r].conv<40;}).map(function(r){return r+' ('+rdMap[r].conv.toFixed(0)+'%)';});
+    if(lowConvRgns.length>0){
+      alerts.push({sev:'red',icon:'📉',title:'Critical conversion rate — below 40%',body:lowConvRgns.join(', ')+' converting fewer than 2 in 5 outlets visited. Biggest lever for same-day revenue recovery.',action:'Review call objectives & pitch quality with ASMs'});
+    }
+    if(!isAccel && !isFlat){
+      alerts.push({sev:'amb',icon:'⚠️',title:'Revenue momentum is decelerating',body:'Second-half daily avg is '+fm(Math.round(secondHalfAvg))+' vs first-half '+fm(Math.round(firstHalfAvg))+'. Without intervention the month-end projection may fall short.',action:'Identify what changed in the second half — attendance, routes, or product mix'});
+    }
+    const lowDs=REGIONS.filter(function(r){return rdMap[r].soldCount>0&&rdMap[r].cases/rdMap[r].soldCount<1.5;});
+    if(lowDs.length>0){
+      const dsGapEst = lowDs.reduce(function(s,r){const rd=rdMap[r];const ds=rd.soldCount>0?rd.cases/rd.soldCount:0;const gap=Math.round((1.5-ds)*rd.soldCount);const rpc=rd.cases>0?rd.revenue/rd.cases:0;return s+gap*rpc;},0);
+      alerts.push({sev:'amb',icon:'📦',title:'Low drop size in '+lowDs.join(', '),body:'Average cases per customer is below 1.5 — reps are selling but not upselling. Estimated recovery at 1.5 target: '+fm(Math.round(dsGapEst)),action:'Push SKU bundling & stock-loading promotions in these regions'});
+    }
+    if(REGIONS.filter(function(r){return rdMap[r].met>0&&rdMap[r].conv<65;}).length===0){
+      alerts.push({sev:'grn',icon:'✅',title:'All regions above 65% conversion — excellent execution',body:'The entire team is converting more than 2 in 3 outlets visited. Focus shifts to drop size and rep productivity.',action:'Maintain momentum; push volume & SKU breadth'});
+    }
+    const sevColor={red:'var(--red)',amb:'var(--amb)',grn:'var(--grn)'};
+    const sevBg={red:'var(--redb)',amb:'var(--ambd)',grn:'var(--grnd)'};
+    const sevBdr={red:'rgba(255,71,87,.25)',amb:'rgba(245,166,35,.25)',grn:'rgba(0,229,160,.25)'};
+    document.getElementById('gmd-alerts').innerHTML='<div style="display:flex;flex-direction:column;gap:10px">'+alerts.map(function(a){
+      return '<div style="background:'+sevBg[a.sev]+';border:1px solid '+sevBdr[a.sev]+';border-radius:var(--r);padding:16px 20px;display:flex;gap:14px;align-items:flex-start">'
+        +'<span style="font-size:22px;flex-shrink:0">'+a.icon+'</span>'
+        +'<div style="flex:1">'
+        +'<div style="font-family:var(--fn);font-size:14px;font-weight:700;color:'+sevColor[a.sev]+';margin-bottom:4px">'+a.title+'</div>'
+        +'<div style="font-family:var(--fm);font-size:11px;color:var(--dim);font-weight:500;line-height:1.5;margin-bottom:8px">'+a.body+'</div>'
+        +'<div style="display:inline-flex;align-items:center;gap:6px;background:var(--s2);border-radius:6px;padding:4px 10px">'
+        +'<span style="font-size:10px">→</span>'
+        +'<span style="font-family:var(--fn);font-size:10px;font-weight:700;color:'+sevColor[a.sev]+';letter-spacing:.5px">'+a.action+'</span>'
+        +'</div>'
+        +'</div>'
+        +'</div>';
+    }).join('')+'</div>';
+
+    /* ── REP PRODUCTIVITY CHARTS ── */
+    setTimeout(function(){
+      const rpRgns=REGIONS.filter(function(r){return rdMap[r].attCount>0;});
+      barCh('c-gmd-revperrep',rpRgns,rpRgns.map(function(r){return Math.round(rdMap[r].revenue/rdMap[r].attCount);}),rpRgns.map(function(r){return RC[r];}));
+      const zeroByRgn={};
+      fReps(null).filter(function(r){return r.revenue===0;}).forEach(function(r){zeroByRgn[r.region]=(zeroByRgn[r.region]||0)+1;});
+      stackedBarCh('c-gmd-zerorep',REGIONS,[
+        {label:'With Revenue',data:REGIONS.map(function(r){return Math.max(0,rdMap[r].attCount-(zeroByRgn[r]||0));}),backgroundColor:'rgba(0,229,160,.7)',borderColor:'#00e5a0',borderWidth:1},
+        {label:'Zero Revenue',data:REGIONS.map(function(r){return zeroByRgn[r]||0;}),backgroundColor:'rgba(255,71,87,.7)',borderColor:'#ff4757',borderWidth:1},
+      ]);
+    },100);
+  })();
+
+  /* ── TOP 3 REPS COMPANY-WIDE ── */
+  const allReps=fReps(null).filter(r=>r.revenue>0).slice(0,3);
+  ['gmd-top1','gmd-top2','gmd-top3'].forEach(function(id,i){
+    const r=allReps[i];
+    const el=document.getElementById(id);
+    if(!r){el.innerHTML='<div style="padding:16px;font-family:var(--fm);font-size:11px;color:var(--dim);font-weight:700">No data</div>';return;}
+    const ds=r.soldCount>0?(r.cases/r.soldCount).toFixed(1)+' cs':'—';
+    el.innerHTML=`
+      <div style="padding:18px 18px 14px">
+        <div style="font-family:var(--fb);font-size:15px;font-weight:700;margin-bottom:3px">${r.name||r.code}</div>
+        <div style="font-family:var(--fm);font-size:9px;color:var(--dim);font-weight:700;margin-bottom:14px">${r.code} · ${r.region}${r.asm?' · '+r.asm:''}</div>
+        <div style="font-family:var(--fn);font-size:26px;font-weight:800;color:var(--grn);margin-bottom:4px">${fm(r.revenue)}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px">
+          <div style="background:var(--s2);border-radius:8px;padding:8px;text-align:center">
+            <div style="font-family:var(--fm);font-size:8px;color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Cases</div>
+            <div style="font-family:var(--fn);font-size:13px;font-weight:800">${fn(r.cases)}</div>
+          </div>
+          <div style="background:var(--s2);border-radius:8px;padding:8px;text-align:center">
+            <div style="font-family:var(--fm);font-size:8px;color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Customers</div>
+            <div style="font-family:var(--fn);font-size:13px;font-weight:800">${fn(r.soldCount)}</div>
+          </div>
+          <div style="background:var(--s2);border-radius:8px;padding:8px;text-align:center">
+            <div style="font-family:var(--fm);font-size:8px;color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Drop Size</div>
+            <div style="font-family:var(--fn);font-size:13px;font-weight:800;color:var(--pur)">${ds}</div>
+          </div>
+        </div>
+      </div>`;
+  });
+}
+
+/* ═══════════════════════════ REGION ════════════════════════ */
+function renderRgn(regName){
+  const key=RK[regName], el=document.getElementById('rg-'+key);
+  if(!el) return;
+  const rd=fRegion(regName), color=RC[regName];
+  const reps=fReps(regName), top5=reps.slice(0,5);
+  const dates=Object.keys(D.daily[regName]||{}).sort();
+  const compColor = (rd.compliance||0)>=100?'var(--grn)':(rd.compliance||0)>=75?'var(--amb)':(rd.compliance||0)>=50?'#ff8c00':'var(--red)';
+
+  /* ── Top 3 / Bottom 3 reps ── */
+  const medals = ['🥇','🥈','🥉'];
+  const withRev = reps.filter(function(r){return r.revenue>0;});
+  const top3 = withRev.slice(0,3);
+  const bot3 = withRev.length>3 ? withRev.slice(-3).reverse() : withRev.slice().reverse().filter(function(_,i){return i<3 && withRev.length>1;});
+
+  function perfRow(r, label, labelColor){
+    return '<div class="perf-row">'
+      +'<div class="perf-rank" style="color:'+labelColor+'">'+label+'</div>'
+      +'<div class="perf-info">'
+      +'<div class="perf-name">'+(r.name||r.code)+'</div>'
+      +'<div class="perf-meta">'+(r.asm||r.code)+'</div>'
+      +'</div>'
+      +'<div style="text-align:right">'
+      +'<div class="perf-rev" style="color:'+labelColor+'">'+fm(r.revenue)+'</div>'
+      +'<div class="perf-cases">'+fn(r.cases)+' cases · '+fn(r.soldCount)+' cust.</div>'
+      +'</div>'
+      +'</div>';
+  }
+
+  let perfHtml = '';
+  if(top3.length){
+    perfHtml = '<div class="perf-grid" style="margin-bottom:22px">'
+      +'<div class="perf-panel">'
+      +'<div class="perf-panel-hd" style="color:var(--grn)">&#127942; Top 3 — '+regName+'</div>'
+      +top3.map(function(r,i){return perfRow(r, medals[i], 'var(--grn)');}).join('')
+      +'</div>'
+      +'<div class="perf-panel" style="border-color:rgba(255,71,87,.35)">'
+      +'<div class="perf-panel-hd" style="color:var(--red)">&#9888; Bottom 3 — '+regName+'</div>'
+      +(bot3.length ? bot3.map(function(r){return perfRow(r, '⚠', 'var(--red)');}).join('')
+        : '<div style="padding:16px;font-family:var(--fm);font-size:11px;color:var(--dim)">Not enough reps to compare</div>')
+      +'</div>'
+      +'</div>';
+  }
+
+  /* ── Top 5 cards — removed ── */
+  let top5Html = '';
+  // top5 variable kept for chart use below
+
+  /* ── Table rows ── */
+  let tblRows = '';
+  reps.forEach(function(r,i){
+    tblRows += '<tr>'
+      +'<td style="color:var(--dim)">'+(i+1)+'</td>'
+      +'<td style="color:'+color+'">'+r.code+'</td>'
+      +'<td class="td-nm">'+(r.name||'—')+'</td>'
+      +'<td class="td-asm">'+(r.asm||'—')+'</td>'
+      +'<td style="color:var(--grn)">'+fm(r.revenue)+'</td>'
+      +'<td>'+fn(r.cases)+'</td>'
+      +'<td style="color:var(--pur);font-family:var(--fn);font-weight:700">'+(r.soldCount>0?(r.cases/r.soldCount).toFixed(1):'-')+' cs</td>'
+      +'<td>'+fn(r.outletCount)+'</td>'
+      +'<td>'+fn(r.soldCount)+'</td>'
+      +'<td>'+cbadge(r.conv)+'</td>'
+      +'<td>'+compbadge(r.compliance||0)+'</td>'
+      +'</tr>';
+  });
+
+  el.innerHTML =
+    '<div class="sh">'
+    +'<div class="sh-title">'+(regName==='Key Acct'?'KEY ACCOUNT':regName)+'</div>'
+    +'<span class="badge b-grn">MTD</span>'
+    +'<span class="badge b-asm" style="'+(activeASM?'':'display:none')+'">'+(activeASM?'ASM: '+activeASM:'')+'</span>'
+    +'<span class="sh-meta">'+reps.length+' Reps</span>'
+    +'</div>'
+    +'<div class="kg">'
+    +'<div class="kc"><div class="kc-lbl">MTD Revenue</div><div class="kc-val c-g">'+fm(rd.revenue)+'</div></div>'
+    +'<div class="kc"><div class="kc-lbl">Cases Sold</div><div class="kc-val">'+fn(rd.cases)+'</div></div>'
+    +'<div class="kc a"><div class="kc-lbl">Active Reps</div><div class="kc-val c-a">'+rd.attCount+'<span style="font-size:14px;color:var(--dim)"> checked in</span></div><div style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-top:3px">Incl. zero-revenue</div></div>'
+    +'<div class="kc" style="--acc:var(--grn)"><div class="kc-lbl">Productive Reps</div><div class="kc-val c-g">'+reps.filter(function(r){return r.revenue>0;}).length+'<span style="font-size:14px;color:var(--dim)"> selling</span></div><div style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-top:3px">Revenue > ₦0</div></div>'
+    +'<div class="kc b"><div class="kc-lbl">Outlets Met</div><div class="kc-val c-b">'+fn(rd.metCount)+'</div></div>'
+    +'<div class="kc"><div class="kc-lbl">Customers Sold To</div><div class="kc-val">'+fn(rd.soldCount)+'</div></div>'
+    +'<div class="kc p"><div class="kc-lbl">Drop Size</div><div class="kc-val c-p">'+(rd.soldCount>0?(rd.cases/rd.soldCount).toFixed(1):'-')+' cs</div><div style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-top:3px">Avg cases per customer</div></div>'
+    +'<div class="kc p"><div class="kc-lbl">Conversion Rate</div><div class="kc-val c-p">'+fp(rd.conv)+'</div></div>'
+    +'<div class="kc" style="border-color:'+compColor+'33">'
+    +'<div class="kc-lbl">Avg Compliance <span style="font-size:9px;color:var(--dim)">(vs 220)</span></div>'
+    +'<div class="kc-val" style="color:'+compColor+'">'+fp(rd.compliance||0)+'</div>'
+    +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-top:4px">'+(rd.compliantCount||0)+' of '+reps.length+' reps at target</div>'
+    +'</div>'
+    +'</div>'
+    + perfHtml
+    + top5Html
+    +'<div class="cg g2">'
+    +'<div class="cc"><div class="cc-ttl"><span class="d">&#9642;</span>Daily Revenue Trend</div><div class="cw"><canvas id="c-'+key+'-tr"></canvas></div></div>'
+    +'<div class="cc"><div class="cc-ttl"><span class="d">&#9642;</span>Top Reps by Revenue</div><div class="cw"><canvas id="c-'+key+'-tp"></canvas></div></div>'
+    +'</div>'
+    +'<div class="tb">'
+    +'<div class="tb-hd"><span style="color:'+color+'">&#9642;</span>Full Rep Scorecard<span class="tb-cnt">'+reps.length+' REPS</span></div>'
+    +'<div style="overflow-x:auto">'
+    +'<table><thead><tr>'
+    +'<th>#</th><th>Code</th><th>Name</th><th>ASM</th>'
+    +'<th>Revenue</th><th>Cases</th><th>Drop Size</th><th>Outlets Met</th><th>Customers Sold</th><th>Conversion</th>'
+    +'<th>Compliance <span style="font-weight:400;font-size:9px;opacity:.7">/220</span></th>'
+    +'</tr></thead><tbody>'
+    +tblRows
+    +'</tbody></table>'
+    +'</div>'
+    +'</div>';
+
+  setTimeout(function(){
+    if(dates.length) lineCh('c-'+key+'-tr',dates.map(function(d){return d.slice(5);}),
+      [{label:regName,data:dates.map(function(d){return (D.daily[regName]||{})[d]||0;}),color:color}]);
+    if(top5.length) barCh('c-'+key+'-tp',
+      top5.map(function(r){return (r.name||r.code).split(' ')[0];}),
+      top5.map(function(r){return r.revenue;}), color);
+  },100);
+}
+
+/* ═══════════════════════════ DOUGHNUT CHART ════════════════ */
+function doughnutCh(id, labels, data, colors){
+  killCh(id);
+  const el=document.getElementById(id); if(!el) return;
+  const tc=getThemeColors();
+  CH[id]=new Chart(el,{type:'doughnut',
+    data:{labels,datasets:[{data,backgroundColor:colors.map(c=>c+'99'),borderColor:colors,borderWidth:2,hoverOffset:8}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'62%',
+      plugins:{
+        legend:{display:true,position:'right',labels:{color:tc.tick,font:{size:10,family:'Space Mono,monospace',weight:'700'},boxWidth:12,padding:10}},
+        tooltip:{backgroundColor:tc.ttBg,borderColor:tc.ttBdr,borderWidth:1,titleColor:tc.ttTtl,bodyColor:tc.ttBdy,
+          callbacks:{label:function(ctx){const v=ctx.parsed; const tot=ctx.dataset.data.reduce((a,b)=>a+b,0); return ' ₦'+(v/1000000).toFixed(1)+'M ('+(v/tot*100).toFixed(1)+'%)';}}}
+      }},
+    plugins:[ChartDataLabels]});
+}
+
+function stackedBarCh(id, labels, datasets){
+  killCh(id);
+  const el=document.getElementById(id); if(!el) return;
+  const tc=getThemeColors();
+  const opts=JSON.parse(JSON.stringify(CO));
+  opts.scales.x.stacked=true; opts.scales.y.stacked=true;
+  opts.scales.x.grid.color=tc.grid; opts.scales.x.ticks.color=tc.tick;
+  opts.scales.y.grid.color=tc.grid; opts.scales.y.ticks.color=tc.tick;
+  opts.plugins.tooltip.backgroundColor=tc.ttBg; opts.plugins.tooltip.borderColor=tc.ttBdr;
+  opts.plugins.tooltip.titleColor=tc.ttTtl; opts.plugins.tooltip.bodyColor=tc.ttBdy;
+  opts.plugins.legend={display:true,labels:{color:tc.tick,font:{size:9,family:'Space Mono,monospace',weight:'700'},boxWidth:10}};
+  opts.plugins.datalabels={display:false};
+  CH[id]=new Chart(el,{type:'bar',data:{labels,datasets},options:opts,plugins:[ChartDataLabels]});
+}
+
+/* ═══════════════════════════ INTELLIGENCE ══════════════════ */
+function renderIntel(){
+  document.getElementById('intel-empty').style.display='none';
+  document.getElementById('intel-body').style.display='';
+  const I=D.intel, o=fOverall();
+  const tv=o.revenue||1;
+
+  /* ── Run Rate & Projection ── */
+  const daysGone = I.workDaysGone||1;
+  const daysLeft = I.workDaysLeft||0;
+  const daysTotal= I.workDaysInMonth||23;
+  const daysInMth= I.daysInMonth||28;
+  // Working days actually elapsed = capped at total working days (balance<0 means all done)
+  const wDaysElapsed = Math.min(daysGone, daysTotal);
+  // Remaining working days = max(0, balance) — negative balance means month is over
+  const wDaysLeft    = Math.max(0, daysLeft);
+  const dailyRun = tv / Math.max(wDaysElapsed, 1);
+  const projected= dailyRun * daysInMth;
+  const pctGone  = Math.min(daysGone/daysInMth*100, 100);
+  const projLabel= wDaysLeft===0 ? 'Month complete — final figure' : 'Run Rate × '+daysInMth+' calendar days';
+
+  document.getElementById('intel-runrate').innerHTML=[
+    {l:'Days Gone / Days in Month',v:daysGone+' / '+daysInMth,vc:'c-a',c:'a',s:pctGone.toFixed(0)+'% of month elapsed · '+daysTotal+' working days'},
+    {l:'Daily Run Rate',v:fm(Math.round(dailyRun)),vc:'c-g',c:'',s:'Avg revenue per working day'},
+    {l:'Projected Month-End Rev',v:fm(Math.round(projected)),vc:'c-g',c:'',s:projLabel},
+    {l:'Revenue / Productive Rep / Day',v:fm(Math.round(dailyRun/Math.max(Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length,1))),vc:'c-g',c:'',s:'Productive reps only (revenue > ₦0)'},
+  ].map(function(k){return '<div class="kc '+k.c+'"><div class="kc-lbl">'+k.l+'</div><div class="kc-val '+k.vc+'">'+k.v+'</div><div class="kc-sub">'+k.s+'</div></div>';}).join('');
+
+  /* ── Zero Revenue Reps ── */
+  const attReps = fReps(null);
+  const zeroRevReps = attReps.filter(function(r){return r.revenue===0;});
+  const zeroHtml = zeroRevReps.length===0
+    ? '<div style="padding:20px 16px;font-family:var(--fm);font-size:11px;color:var(--grn)">✓ All active reps have recorded revenue</div>'
+    : zeroRevReps.map(function(r){
+        return '<div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid rgba(255,71,87,.1)">'
+          +'<div style="font-size:18px">⚠</div>'
+          +'<div style="flex:1"><div style="font-family:var(--fb);font-size:12px;font-weight:600">'+(r.name||r.code)+'</div>'
+          +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim)">'+r.code+(r.asm?' · '+r.asm:'')+' · '+r.region+'</div></div>'
+          +'<div style="font-family:var(--fn);font-size:12px;font-weight:700;color:var(--red)">₦0</div>'
+          +'</div>';
+      }).join('');
+  document.getElementById('intel-zeroreps').innerHTML = zeroHtml;
+
+  /* ── Brand KPIs ── */
+  const brandsSorted = Object.entries(I.brands).filter(function(e){return e[0]!=='Unknown';}).sort(function(a,b){return b[1].revenue-a[1].revenue;});
+  const BRAND_COLORS = ['#00e5a0','#3d9eff','#a259ff','#f5a623','#ff4757','#00b87d'];
+  document.getElementById('intel-brand-kpis').innerHTML = brandsSorted.map(function(e,i){
+    const [br,d]=e;
+    const share=(d.revenue/tv*100).toFixed(1);
+    return '<div class="kc"><div class="kc-lbl" style="color:'+BRAND_COLORS[i%6]+'">'+br+'</div>'
+      +'<div class="kc-val" style="color:'+BRAND_COLORS[i%6]+';font-size:22px">'+fm(d.revenue)+'</div>'
+      +'<div class="kc-sub">'+fn(d.cases)+' cases · '+share+'% share</div></div>';
+  }).join('');
+
+  /* ── Channel legend + SKU table ── */
+  const chansSorted = Object.entries(I.channels).filter(function(e){return e[0]!=='Unknown';}).sort(function(a,b){return b[1].revenue-a[1].revenue;});
+  const CHAN_COLORS = ['#3d9eff','#00e5a0','#f5a623','#a259ff','#ff4757'];
+  const skusSorted = Object.entries(I.skus).filter(function(e){return e[0]!=='Unknown';}).sort(function(a,b){return b[1].revenue-a[1].revenue;}).slice(0,10);
+  const totalSkuRev = skusSorted.reduce(function(s,e){return s+e[1].revenue;},0)||1;
+
+  document.getElementById('intel-sku-tbl').innerHTML = skusSorted.map(function(e,i){
+    const [sku,d]=e;
+    const share=(d.revenue/tv*100).toFixed(1);
+    return '<tr>'
+      +'<td style="color:var(--dim)">'+(i+1)+'</td>'
+      +'<td style="font-family:var(--fb);font-size:12px">'+sku+'</td>'
+      +'<td style="color:var(--pur);font-size:11px">'+d.brand+'</td>'
+      +'<td style="color:var(--grn)">'+fm(d.revenue)+'</td>'
+      +'<td>'+fn(d.cases)+'</td>'
+      +'<td>'+fm(Math.round(d.revenue/Math.max(d.cases,1)))+'</td>'
+      +'<td><div style="display:flex;align-items:center;gap:6px">'
+      +'<div style="width:60px;height:4px;background:var(--bdr);border-radius:2px;overflow:hidden">'
+      +'<div style="width:'+share+'%;height:100%;background:var(--grn);border-radius:2px"></div></div>'
+      +'<span style="font-size:10px;color:var(--dim)">'+share+'%</span></div></td>'
+      +'</tr>';
+  }).join('');
+
+  /* ── Daily heatmap ── */
+  const allDates = Object.keys(D.dailyAll).sort();
+  const maxDayRev= Math.max.apply(null, allDates.map(function(d){return D.dailyAll[d]||0;}));
+  document.getElementById('intel-heatmap').innerHTML = allDates.map(function(d){
+    const rev=D.dailyAll[d]||0;
+    const pct=maxDayRev>0?rev/maxDayRev:0;
+    const alpha=0.1+pct*0.85;
+    const label=d.slice(5);
+    return '<div title="'+d+': '+fm(rev)+'" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:default">'
+      +'<div style="width:44px;height:44px;border-radius:8px;background:rgba(0,229,160,'+alpha.toFixed(2)+');display:flex;align-items:center;justify-content:center;font-family:var(--fn);font-size:11px;font-weight:700;color:'+(pct>0.5?'var(--bg)':'var(--grn)')+'">'+label+'</div>'
+      +'<div style="font-family:var(--fm);font-size:8px;color:var(--dim)">'+(rev>=1000000?(rev/1000000).toFixed(1)+'M':(rev/1000).toFixed(0)+'k')+'</div>'
+      +'</div>';
+  }).join('');
+
+  /* ── Charts ── */
+  setTimeout(function(){
+    // Brand doughnut
+    doughnutCh('c-intel-brand',
+      brandsSorted.map(function(e){return e[0];}),
+      brandsSorted.map(function(e){return e[1].revenue;}),
+      BRAND_COLORS);
+
+    // Brand stacked by region
+    const validRgns = REGIONS.filter(function(r){return D.intel.brandByRgn[r];});
+    stackedBarCh('c-intel-brandrgn', validRgns,
+      brandsSorted.slice(0,5).map(function(e,i){
+        return {
+          label:e[0],
+          data:validRgns.map(function(r){return (D.intel.brandByRgn[r]||{})[e[0]]||0;}),
+          backgroundColor:BRAND_COLORS[i%6]+'88',
+          borderColor:BRAND_COLORS[i%6], borderWidth:1
+        };
+      }));
+
+    // Channel doughnut
+    doughnutCh('c-intel-chan',
+      chansSorted.map(function(e){return e[0];}),
+      chansSorted.map(function(e){return e[1].revenue;}),
+      CHAN_COLORS);
+
+    // Channel stacked by region
+    stackedBarCh('c-intel-chanrgn', validRgns,
+      chansSorted.slice(0,4).map(function(e,i){
+        return {
+          label:e[0],
+          data:validRgns.map(function(r){return (D.intel.chanByRgn[r]||{})[e[0]]||0;}),
+          backgroundColor:CHAN_COLORS[i%5]+'88',
+          borderColor:CHAN_COLORS[i%5], borderWidth:1
+        };
+      }));
+
+    // Avg cases per rep by region
+    const atvRgns=REGIONS.filter(function(r){return D.regions[r].attCount>0;});
+    barCh('c-intel-atv',
+      atvRgns,
+      atvRgns.map(function(r){const rd=D.regions[r]; return rd.attCount>0?Math.round(rd.cases/rd.attCount):0;}),
+      atvRgns.map(function(r){return RC[r];}));
+  },100);
+}
+
+/* ═══════════════════════════ TOAST ══════════════════════════ */
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('on');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('on'),3500);
+}
+</script>
+</body>
+</html>
