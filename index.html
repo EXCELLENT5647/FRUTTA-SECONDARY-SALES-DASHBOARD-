@@ -367,10 +367,16 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
   <div class="hdr-right">
     <span id="date-lbl"></span>
     <span id="file-chip" class="file-chip"></span>
-    <button class="mode-btn" id="mode-btn" onclick="toggleMode()">👁 VIEWER MODE</button>
+    <span id="live-badge" style="display:none;align-items:center;gap:5px;background:rgba(0,229,160,.1);border:1px solid rgba(0,229,160,.35);border-radius:8px;padding:4px 10px;font-family:var(--fm);font-size:9px;color:var(--grn);letter-spacing:.5px">
+      <span style="width:6px;height:6px;border-radius:50%;background:var(--grn);display:inline-block;box-shadow:0 0 6px var(--grn)"></span>
+      LIVE <span id="live-date" style="opacity:.7;margin-left:3px"></span>
+    </span>
     <button class="mode-btn" id="theme-btn" onclick="toggleTheme()">☀️ LIGHT</button>
     <button class="share-btn" onclick="openShare()">🔗 SHARE</button>
-    <button class="upload-btn" id="upload-btn" onclick="document.getElementById('hfi').click()">⬆ Upload Report</button>
+    <!-- admin-only controls, hidden for viewers -->
+    <button class="upload-btn" id="upload-btn" style="display:none" onclick="document.getElementById('hfi').click()">⬆ Upload Report</button>
+    <button class="upload-btn" id="publish-btn" style="display:none;background:linear-gradient(135deg,var(--grn2),var(--grn));color:#030f08" onclick="publishData()">🚀 Publish Live</button>
+    <button class="mode-btn" id="admin-gear" style="display:none" onclick="openSetup()">⚙️ Setup</button>
     <input type="file" id="hfi" accept=".xlsx,.xls" style="display:none" onchange="handleFile(this.files[0])">
   </div>
 </header>
@@ -638,6 +644,46 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
     </div>
     <div class="modal-tip">
       💡 <strong>ASM Filter tip:</strong> Once data is loaded, the ASM filter bar appears below the header. Anyone viewing the shared link can click an ASM name to filter all views instantly — Overview, GMD, and all region tabs update in real time.
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════ SETUP MODAL ═══════════ -->
+<div id="setup-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);align-items:center;justify-content:center">
+  <div style="background:var(--s1);border:1px solid var(--bdr);border-radius:16px;padding:32px;max-width:480px;width:90%;box-shadow:0 24px 60px rgba(0,0,0,.6)">
+    <div style="font-family:var(--fm);font-size:11px;letter-spacing:3px;color:var(--grn);margin-bottom:4px">GITHUB SETUP</div>
+    <div style="font-size:18px;font-weight:700;margin-bottom:20px">Connect to GitHub</div>
+    <div style="font-size:12px;color:var(--dim);margin-bottom:20px;line-height:1.7">
+      Your data will be saved as <code style="background:var(--s2);padding:2px 6px;border-radius:4px;font-family:var(--fm);font-size:11px;color:var(--grn)">data.json</code> in your GitHub repo. Viewers load it automatically — no login needed.
+    </div>
+    <label style="display:block;font-size:10px;letter-spacing:1px;color:var(--dim);margin-bottom:6px">GITHUB USERNAME</label>
+    <input id="gh-user" placeholder="e.g. yourname" style="width:100%;background:var(--s2);border:1px solid var(--bdr);border-radius:8px;padding:10px 14px;color:var(--txt);font-family:var(--fm);font-size:12px;margin-bottom:14px;outline:none">
+    <label style="display:block;font-size:10px;letter-spacing:1px;color:var(--dim);margin-bottom:6px">REPOSITORY NAME</label>
+    <input id="gh-repo" placeholder="e.g. frutta-dashboard" style="width:100%;background:var(--s2);border:1px solid var(--bdr);border-radius:8px;padding:10px 14px;color:var(--txt);font-family:var(--fm);font-size:12px;margin-bottom:14px;outline:none">
+    <label style="display:block;font-size:10px;letter-spacing:1px;color:var(--dim);margin-bottom:6px">PERSONAL ACCESS TOKEN <span style="opacity:.5">(needs "Contents" write permission)</span></label>
+    <input id="gh-token" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" style="width:100%;background:var(--s2);border:1px solid var(--bdr);border-radius:8px;padding:10px 14px;color:var(--txt);font-family:var(--fm);font-size:12px;margin-bottom:6px;outline:none">
+    <div style="font-size:10px;color:var(--dim);margin-bottom:20px">
+      Get one at GitHub → Settings → Developer settings → Personal access tokens → Fine-grained → Contents: Read &amp; Write
+    </div>
+    <div id="setup-status" style="font-size:11px;margin-bottom:16px;min-height:18px;font-family:var(--fm)"></div>
+    <div style="display:flex;gap:10px">
+      <button onclick="saveSetup()" style="flex:1;background:linear-gradient(135deg,var(--grn2),var(--grn));color:#030f08;border:none;border-radius:8px;padding:11px;font-family:var(--fm);font-size:11px;font-weight:700;letter-spacing:1px;cursor:pointer">SAVE &amp; TEST</button>
+      <button onclick="document.getElementById('setup-modal').style.display='none'" style="padding:11px 20px;background:transparent;border:1px solid var(--bdr);border-radius:8px;color:var(--dim);font-family:var(--fm);font-size:11px;cursor:pointer">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ PUBLISH CONFIRM MODAL ═══════════ -->
+<div id="pub-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);align-items:center;justify-content:center">
+  <div style="background:var(--s1);border:1px solid var(--bdr);border-radius:16px;padding:32px;max-width:400px;width:90%;text-align:center">
+    <div style="font-size:32px;margin-bottom:12px">🚀</div>
+    <div style="font-size:17px;font-weight:700;margin-bottom:10px">Publish to GitHub?</div>
+    <div style="font-size:12px;color:var(--dim);margin-bottom:24px;line-height:1.6">This will overwrite the live <code style="background:var(--s2);padding:2px 6px;border-radius:4px;font-family:var(--fm);font-size:11px;color:var(--grn)">data.json</code> in your repo. Everyone with the link will immediately see the new data.</div>
+    <div id="pub-status" style="font-size:11px;margin-bottom:16px;min-height:18px;font-family:var(--fm);color:var(--grn)"></div>
+    <div style="display:flex;gap:10px;justify-content:center">
+      <button id="pub-confirm-btn" onclick="confirmPublish()" style="flex:1;background:linear-gradient(135deg,var(--grn2),var(--grn));color:#030f08;border:none;border-radius:8px;padding:11px;font-family:var(--fm);font-size:11px;font-weight:700;letter-spacing:1px;cursor:pointer">YES, PUBLISH</button>
+      <button onclick="document.getElementById('pub-modal').style.display='none'" style="padding:11px 20px;background:transparent;border:1px solid var(--bdr);border-radius:8px;color:var(--dim);font-family:var(--fm);font-size:11px;cursor:pointer">CANCEL</button>
     </div>
   </div>
 </div>
@@ -2476,6 +2522,147 @@ function renderIntel(){
       atvRgns.map(function(r){return RC[r];}));
   },100);
 }
+
+
+
+/* ═══════════════════════════════════════════════════════════════
+   GITHUB API — ADMIN / PUBLISH SYSTEM
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Config stored in localStorage ── */
+function ghCfg(){
+  try{ return JSON.parse(localStorage.getItem('gh_cfg')||'{}'); }catch(e){ return {}; }
+}
+function ghSave(cfg){ localStorage.setItem('gh_cfg',JSON.stringify(cfg)); }
+
+/* ── Keyboard shortcut: Ctrl+Shift+A → password → admin ── */
+(function(){
+  let buf='';
+  document.addEventListener('keydown',function(e){
+    if(e.ctrlKey&&e.shiftKey&&e.key==='A'){
+      const pw=prompt('Admin password:');
+      if(pw==='frutta2026') enableAdmin();
+    }
+  });
+})();
+
+let _adminActive=false;
+function enableAdmin(){
+  _adminActive=true;
+  document.getElementById('upload-btn').style.display='';
+  document.getElementById('publish-btn').style.display='';
+  document.getElementById('admin-gear').style.display='';
+  toast('🔑 Admin mode activated');
+  // Auto-load data.json from GitHub so admin can see current live state
+  loadLiveData(true);
+}
+
+function openSetup(){
+  const cfg=ghCfg();
+  document.getElementById('gh-user').value=cfg.user||'';
+  document.getElementById('gh-repo').value=cfg.repo||'';
+  document.getElementById('gh-token').value=cfg.token||'';
+  document.getElementById('setup-status').textContent='';
+  document.getElementById('setup-modal').style.display='flex';
+}
+
+async function saveSetup(){
+  const user=document.getElementById('gh-user').value.trim();
+  const repo=document.getElementById('gh-repo').value.trim();
+  const token=document.getElementById('gh-token').value.trim();
+  const st=document.getElementById('setup-status');
+  if(!user||!repo||!token){st.style.color='var(--red)';st.textContent='⚠ All fields required';return;}
+  st.style.color='var(--dim)'; st.textContent='Testing connection…';
+  try{
+    const r=await fetch(`https://api.github.com/repos/${user}/${repo}`,{
+      headers:{'Authorization':'token '+token,'Accept':'application/vnd.github.v3+json'}
+    });
+    if(!r.ok) throw new Error('HTTP '+r.status+' — check username, repo name and token permissions');
+    ghSave({user,repo,token});
+    st.style.color='var(--grn)'; st.textContent='✅ Connected! Ready to publish.';
+    setTimeout(()=>{ document.getElementById('setup-modal').style.display='none'; },1400);
+  }catch(err){
+    st.style.color='var(--red)'; st.textContent='❌ '+err.message;
+  }
+}
+
+function publishData(){
+  if(!D){ toast('Upload a report first'); return; }
+  const cfg=ghCfg();
+  if(!cfg.token||!cfg.user||!cfg.repo){ openSetup(); return; }
+  document.getElementById('pub-status').textContent='';
+  document.getElementById('pub-confirm-btn').disabled=false;
+  document.getElementById('pub-confirm-btn').textContent='YES, PUBLISH';
+  document.getElementById('pub-modal').style.display='flex';
+}
+
+async function confirmPublish(){
+  const cfg=ghCfg();
+  const btn=document.getElementById('pub-confirm-btn');
+  const st=document.getElementById('pub-status');
+  btn.disabled=true; btn.textContent='Publishing…'; st.textContent='';
+  try{
+    const payload={data:D, publishedAt:new Date().toISOString()};
+    const content=btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    // Get current SHA (needed for update)
+    let sha=null;
+    const existR=await fetch(
+      `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json`,
+      {headers:{'Authorization':'token '+cfg.token,'Accept':'application/vnd.github.v3+json'}}
+    );
+    if(existR.ok){ const j=await existR.json(); sha=j.sha; }
+    // PUT file
+    const body={message:'📊 Publish dashboard data',content};
+    if(sha) body.sha=sha;
+    const putR=await fetch(
+      `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json`,
+      {method:'PUT',headers:{'Authorization':'token '+cfg.token,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},
+       body:JSON.stringify(body)}
+    );
+    if(!putR.ok) throw new Error('HTTP '+putR.status);
+    st.style.color='var(--grn)'; st.textContent='✅ Published!';
+    btn.textContent='DONE ✓';
+    showLiveBadge(new Date().toISOString());
+    setTimeout(()=>{ document.getElementById('pub-modal').style.display='none'; },1800);
+    toast('🚀 Data published — live for everyone!');
+  }catch(err){
+    st.style.color='var(--red)'; st.textContent='❌ '+err.message;
+    btn.disabled=false; btn.textContent='RETRY';
+  }
+}
+
+function showLiveBadge(isoDate){
+  const badge=document.getElementById('live-badge');
+  badge.style.display='flex';
+  if(isoDate){
+    const d=new Date(isoDate);
+    document.getElementById('live-date').textContent=
+      d.toLocaleDateString('en-GB',{day:'numeric',month:'short'})+' '+
+      d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  }
+}
+
+/* ── Load live data from GitHub on page open (viewer mode) ── */
+async function loadLiveData(silent){
+  const cfg=ghCfg();
+  if(!cfg.user||!cfg.repo) return; // not configured yet
+  try{
+    const r=await fetch(
+      `https://raw.githubusercontent.com/${cfg.user}/${cfg.repo}/main/data.json?_=${Date.now()}`
+    );
+    if(!r.ok) return;
+    const json=await r.json();
+    if(json&&json.data){
+      D=json.data;
+      renderAll();
+      showLiveBadge(json.publishedAt||null);
+      if(!silent) toast('📡 Live data loaded');
+    }
+  }catch(e){ /* silently fail — no data yet */ }
+}
+
+/* Auto-load on page open */
+loadLiveData(true);
 
 /* ═══════════════════════════ TOAST ══════════════════════════ */
 function toast(msg){
