@@ -142,6 +142,7 @@ nav{
   background:var(--nav-bg);padding:0 32px;
   overflow-x:auto;backdrop-filter:blur(12px);transition:top .2s;}
 nav.shifted{top:116px;}
+nav.shifted2{top:162px;}
 nav::-webkit-scrollbar{height:2px;}
 .ntab{
   padding:0 20px;height:48px;
@@ -379,6 +380,13 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
   </div>
 </header>
 
+<!-- MONTH SWITCHER BAR -->
+<div id="month-bar" style="display:none;position:sticky;top:60px;z-index:250;background:var(--fbar-bg);border-bottom:1px solid var(--bdr);padding:0 28px;height:46px;align-items:center;gap:12px;backdrop-filter:blur(8px);">
+  <span style="font-family:var(--fm);font-size:9px;letter-spacing:2px;color:var(--dim);white-space:nowrap;text-transform:uppercase">📅 MONTH ▸</span>
+  <div id="month-pills" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
+  <span style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-left:auto">Upload another file to add a month</span>
+</div>
+
 <!-- ASM DROPDOWN BAR -->
 <div class="fbar" id="fbar">
   <span class="fbar-lbl">FILTER BY ASM ▸</span>
@@ -583,7 +591,12 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
       <span class="sh-meta" id="asm-count-lbl"></span>
     </div>
     <!-- REGION FILTER PILLS -->
-    <div id="asm-rgn-pills" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px"></div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:18px">
+      <span style="font-family:var(--fm);font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase">Region ▸</span>
+      <div id="asm-rgn-pills" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+    </div>
+    <!-- STATUS LINE -->
+    <div id="asm-status" style="font-family:var(--fm);font-size:10px;color:var(--dim);margin-bottom:18px;letter-spacing:.5px"></div>
     <!-- SUMMARY KPI CARDS -->
     <div class="kg" id="asm-kpis" style="margin-bottom:22px"></div>
     <!-- CHART ROW -->
@@ -730,6 +743,7 @@ const COMPLIANCE_TARGET = 220; // expected outlets per rep per month
 const ATTE = ['North Atte','Lagos Atte','East Atte','West Atte'];
 
 let D=null, CH={}, viewerMode=false, activeASM=null;
+let MONTHS={}, activeMonth=null; // multi-month store
 
 document.getElementById('date-lbl').textContent =
   new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
@@ -860,6 +874,21 @@ function copyText(inputId, msg){
   });
 }
 
+/* ── Update nav sticky position based on which bars are visible ── */
+function updateNavPos(){
+  const monthOn = document.getElementById('month-bar').style.display!=='none';
+  const asmOn   = document.getElementById('fbar').classList.contains('on');
+  const nav     = document.getElementById('nav');
+  const fbar    = document.getElementById('fbar');
+  // Adjust fbar sticky top: sits below month-bar (106px) or header (60px)
+  fbar.style.top = monthOn ? '106px' : '60px';
+  nav.classList.remove('shifted','shifted2');
+  nav.style.top='';
+  if(monthOn && asmOn)  { nav.classList.add('shifted2'); }
+  else if(monthOn)      { nav.style.top='106px'; }
+  else if(asmOn)        { nav.classList.add('shifted'); }
+}
+
 /* ═══════════════════════════ ASM DROPDOWN ════════════════════ */
 function buildASMBar(){
   const asms=[...new Set(
@@ -880,8 +909,8 @@ function buildASMBar(){
 
   document.getElementById('asm-count').textContent=asms.length+' ASMs';
   document.getElementById('fbar').classList.add('on');
-  document.getElementById('nav').classList.add('shifted');
   document.getElementById('asm-hdr-btn').style.display='';
+  updateNavPos();
 }
 
 function pickASMDrop(name){
@@ -903,15 +932,14 @@ function toggleASMBar(){
   const isOn=fbar.classList.contains('on');
   if(isOn){
     fbar.classList.remove('on');
-    document.getElementById('nav').classList.remove('shifted');
     document.getElementById('asm-hdr-btn').style.borderColor='';
     document.getElementById('asm-hdr-btn').style.color='';
   } else {
     fbar.classList.add('on');
-    document.getElementById('nav').classList.add('shifted');
     document.getElementById('asm-hdr-btn').style.borderColor='rgba(0,229,160,.6)';
     document.getElementById('asm-hdr-btn').style.color='var(--grn)';
   }
+  updateNavPos();
 }
 
 function clearASM(){
@@ -939,16 +967,30 @@ function handleFile(file){
   rd.onload=e=>{
     try{
       const wb=XLSX.read(e.target.result,{type:'binary',cellDates:true});
-      D=parseWB(wb);
-      document.getElementById('file-chip').textContent='📎 '+file.name;
-      document.getElementById('file-chip').style.display='';
+      const parsed=parseWB(wb);
+
+      // Detect month from dominant month in data (most common month across all dates)
+      let monthKey;
+      if(parsed.intel.dominantYM){
+        const [yr,mo] = parsed.intel.dominantYM.split('-').map(Number);
+        monthKey = new Date(yr, mo-1, 1).toLocaleDateString('en-GB',{month:'long',year:'numeric'}).toUpperCase();
+      } else {
+        monthKey = file.name.replace(/\.xlsx?$/i,'').toUpperCase();
+      }
+
+      // Store month data — overwrites if same month, adds new pill if new month
+      const isNew = !MONTHS[monthKey];
+      MONTHS[monthKey]=parsed;
+      activeMonth=monthKey;
+      D=parsed;
+
+      buildMonthSwitcher();
       buildASMBar();
       renderAll();
       sw('ov',document.querySelector('.ntab'));
       const repCount=Object.keys(D.reps).filter(c=>!D.reps[c].isManager).length;
-      const mgrCount=Object.keys(D.reps).filter(c=>D.reps[c].isManager).length;
       const asmCount=[...new Set(Object.values(D.reps).map(r=>r.asm).filter(Boolean))].length;
-      toast(`✓ ${file.name} · ${repCount} reps · ${mgrCount} managers excluded · ${asmCount} ASMs loaded`);
+      toast(isNew ? `✓ ${monthKey} added · ${repCount} reps · ${asmCount} ASMs` : `✓ ${monthKey} updated · ${repCount} reps · ${asmCount} ASMs`);
     }catch(err){
       console.error(err);
       toast('✗ Parse error: '+err.message);
@@ -956,6 +998,34 @@ function handleFile(file){
     btn.disabled=false; btn.textContent='⬆ Upload Report';
   };
   rd.readAsBinaryString(file);
+}
+
+/* ═══════════════════════════ MONTH SWITCHER ══════════════════ */
+function buildMonthSwitcher(){
+  const keys=Object.keys(MONTHS);
+  const bar=document.getElementById('month-bar');
+  if(keys.length<=1){ bar.style.display='none'; return; }
+  bar.style.display='flex';
+  document.getElementById('month-pills').innerHTML=keys.map(function(k){
+    const active=k===activeMonth;
+    return '<button onclick="switchMonth(\''+k+'\')" style="'
+      +'padding:5px 16px;border-radius:20px;border:1px solid '+(active?'var(--grn)':'var(--bdr)')+';'
+      +'background:'+(active?'rgba(0,229,160,.15)':'none')+';'
+      +'color:'+(active?'var(--grn)':'var(--dim)')+';'
+      +'font-family:var(--fm);font-size:10px;font-weight:700;cursor:pointer;'
+      +'letter-spacing:1px;transition:all .2s;white-space:nowrap">'+k+'</button>';
+  }).join('');
+  updateNavPos();
+}
+
+function switchMonth(key){
+  if(!MONTHS[key]) return;
+  activeMonth=key;
+  D=MONTHS[key];
+  buildMonthSwitcher();
+  buildASMBar();
+  renderAll();
+  toast('Viewing: '+key);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1476,10 +1546,47 @@ function parseWB(wb){
     if(reg[r].metCount < reg[r].soldCount) reg[r].metCount = reg[r].soldCount;
     reg[r].conv = reg[r].metCount>0 ? Math.min(reg[r].soldCount/reg[r].metCount*100, 100) : 0;
   }
-  /* ── Parse working days from Time gone sheet FIRST (needed for compliance pacing) ── */
-  let workDaysInMonth=23, workDaysGone=23, workDaysLeft=0, daysInMonth=28;
+  /* ── Derive month stats from actual data dates (Mon-Sat working days) ── */
+  const allDataDates = Object.keys(dailyAll).sort();
+
+  // Most common month in data
+  const monthCount = {};
+  allDataDates.forEach(function(d){
+    const ym = d.slice(0,7); // "2025-02"
+    monthCount[ym] = (monthCount[ym]||0) + 1;
+  });
+  const dominantYM = Object.entries(monthCount).sort((a,b)=>b[1]-a[1])[0]?.[0] || (allDataDates[0]||'').slice(0,7);
+
+  // Calendar days in the dominant month
+  let daysInMonth = 28;
+  let workDaysInMonth = 0;
+  let workDaysGone = 0;
+  let workDaysLeft = 0;
+  if(dominantYM){
+    const [yr,mo] = dominantYM.split('-').map(Number);
+    daysInMonth = new Date(yr, mo, 0).getDate(); // total calendar days
+    // Count Mon-Sat days in the month (working days)
+    for(let day=1; day<=daysInMonth; day++){
+      const dow = new Date(yr, mo-1, day).getDay(); // 0=Sun
+      if(dow !== 0) workDaysInMonth++; // Mon-Sat
+    }
+    // Days gone = latest date in dominant month's data
+    const dominantDates = allDataDates.filter(d=>d.startsWith(dominantYM));
+    if(dominantDates.length){
+      const latestDate = new Date(dominantDates[dominantDates.length-1]);
+      const latestDay  = latestDate.getDate();
+      // Count Mon-Sat days from day 1 up to latestDay
+      for(let day=1; day<=latestDay; day++){
+        const dow = new Date(yr, mo-1, day).getDay();
+        if(dow !== 0) workDaysGone++;
+      }
+      workDaysLeft = Math.max(0, workDaysInMonth - workDaysGone);
+    }
+  }
+
+  // Also try Time gone sheet as fallback if data dates are missing
   const wsTG = wb.Sheets['Time gone'];
-  if(wsTG){
+  if(wsTG && workDaysGone===0){
     const tgRows = XLSX.utils.sheet_to_json(wsTG,{header:1,defval:null});
     tgRows.forEach(function(r){
       if(!r) return;
@@ -1536,7 +1643,7 @@ function parseWB(wb){
 
   return {overall:{revenue:tv,cases:tc,att:ta,met:tm,sold:ts},
     regions:reg, reps, daily, dailyAll,
-    intel:{brands, channels, skus, chanByRgn, brandByRgn, workDaysInMonth, workDaysGone, workDaysLeft, daysInMonth}};
+    intel:{brands, channels, skus, chanByRgn, brandByRgn, workDaysInMonth, workDaysGone, workDaysLeft, daysInMonth, dominantYM}};
 }
 
 /* ═══════════════════════════ ASM-FILTERED HELPERS ════════════ */
@@ -2476,25 +2583,28 @@ function renderIntel(){
   const tv=o.revenue||1;
 
   /* ── Run Rate & Projection ── */
-  const daysGone = I.workDaysGone||1;
-  const daysLeft = I.workDaysLeft||0;
-  const daysTotal= I.workDaysInMonth||23;
-  const daysInMth= I.daysInMonth||28;
-  // Always use real calendar date for Days Gone / Days in Month display
-  const _now       = new Date();
-  const calDayGone   = _now.getDate();
-  const calDaysInMth = new Date(_now.getFullYear(), _now.getMonth()+1, 0).getDate();
-  // Working days actually elapsed = capped at total working days (balance<0 means all done)
+  const daysGone  = I.workDaysGone||1;
+  const daysLeft  = I.workDaysLeft||0;
+  const daysTotal = I.workDaysInMonth||23;
+  const daysInMth = I.daysInMonth||28;
+
+  // Days Gone / Days in Month — derived from actual data dates, not today's clock
+  const allDataDates   = Object.keys(D.dailyAll).sort();
+  const dominantYM     = I.dominantYM || (allDataDates[0]||'').slice(0,7);
+  const dominantDates  = allDataDates.filter(function(d){return d.startsWith(dominantYM);});
+  const latestDataDate = dominantDates.length ? new Date(dominantDates[dominantDates.length-1]) : new Date();
+  const calDayGone     = latestDataDate.getDate();   // latest day with data in the month
+  const calDaysInMth   = daysInMth;                  // total calendar days in data month
+
   const wDaysElapsed = Math.min(daysGone, daysTotal);
-  // Remaining working days = max(0, balance) — negative balance means month is over
   const wDaysLeft    = Math.max(0, daysLeft);
-  const dailyRun = tv / Math.max(wDaysElapsed, 1);
-  const projected= dailyRun * daysInMth;
-  const pctGone  = Math.min(calDayGone/calDaysInMth*100, 100);
-  const projLabel= wDaysLeft===0 ? 'Month complete — final figure' : 'Run Rate × '+daysInMth+' calendar days';
+  const dailyRun  = tv / Math.max(wDaysElapsed, 1);
+  const projected = dailyRun * daysInMth;
+  const pctGone   = Math.min(calDayGone/calDaysInMth*100, 100);
+  const projLabel = wDaysLeft===0 ? 'Month complete — final figure' : 'Run Rate × '+daysInMth+' calendar days';
 
   document.getElementById('intel-runrate').innerHTML=[
-    {l:'Days Gone / Days in Month',v:calDayGone+' / '+calDaysInMth,vc:'c-a',c:'a',s:pctGone.toFixed(0)+'% of month elapsed · '+daysTotal+' working days'},
+    {l:'Days Gone / Days in Month',v:calDayGone+' / '+calDaysInMth,vc:'c-a',c:'a',s:pctGone.toFixed(0)+'% of month elapsed · '+daysGone+' of '+daysTotal+' working days (Mon-Sat)'},
     {l:'Daily Run Rate',v:fm(Math.round(dailyRun)),vc:'c-g',c:'',s:'Avg revenue per working day'},
     {l:'Projected Month-End Rev',v:fm(Math.round(projected)),vc:'c-g',c:'',s:projLabel},
     {l:'Revenue / Productive Rep / Day',v:fm(Math.round(dailyRun/Math.max(Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length,1))),vc:'c-g',c:'',s:'Productive reps only (revenue > ₦0)'},
@@ -2775,69 +2885,88 @@ function renderASM(){
   document.getElementById('asm-empty').style.display='none';
   document.getElementById('asm-body').style.display='';
 
+  // Build region pills from available data
+  const allRegions = [...new Set(Object.values(D.reps).filter(function(r){return r.asm&&!r.isManager;}).map(function(r){return r.region;}))].filter(Boolean);
+  document.getElementById('asm-rgn-pills').innerHTML = ['All',...allRegions].map(function(r){
+    const active = r==='All' ? !asmRgnFilter : r===asmRgnFilter;
+    const col    = r==='All' ? 'var(--grn)' : (RC[r]||'var(--grn)');
+    return '<button onclick="asmRgnFilter='+(r==='All'?'null':"'"+r+"'")+';renderASM()" style="'
+      +'padding:4px 14px;border-radius:20px;cursor:pointer;transition:all .2s;'
+      +'font-family:var(--fm);font-size:10px;font-weight:700;letter-spacing:1px;'
+      +'border:1px solid '+(active?col:'var(--bdr)')+';'
+      +'background:'+(active?col+'22':'none')+';'
+      +'color:'+(active?col:'var(--dim)')+'">'+r+'</button>';
+  }).join('');
+
+  // Build ASM data — respect both activeASM and asmRgnFilter
   const asmMap = {};
   for(const code in D.reps){
     const rep = D.reps[code];
     if(!rep.asm || rep.isManager) continue;
-    if(activeASM && rep.asm !== activeASM) continue;
+    if(activeASM    && rep.asm    !== activeASM)    continue;
     if(asmRgnFilter && rep.region !== asmRgnFilter) continue;
     if(!asmMap[rep.asm]){
-      asmMap[rep.asm]={name:rep.asm,region:rep.region,revenue:0,cases:0,reps:0,soldCount:0,outletCount:0,compliance:0,repList:[]};
+      asmMap[rep.asm]={name:rep.asm, region:rep.region, revenue:0, cases:0, reps:0,
+        soldCount:0, outletCount:0, compliance:0, repList:[]};
     }
-    const a=asmMap[rep.asm];
-    a.revenue+=rep.revenue||0; a.cases+=rep.cases||0; a.reps+=1;
-    a.soldCount+=rep.soldCount||0; a.outletCount+=rep.outletCount||0;
-    a.compliance+=rep.compliance||0;
-    a.repList.push({...rep,code});
+    const a = asmMap[rep.asm];
+    a.revenue    += rep.revenue||0;
+    a.cases      += rep.cases||0;
+    a.reps       += 1;
+    a.soldCount  += rep.soldCount||0;
+    a.outletCount+= rep.outletCount||0;
+    a.compliance += rep.compliance||0;
+    a.repList.push({...rep, code});
   }
 
-  const asms=Object.values(asmMap).map(function(a){
-    a.avgRev=a.reps>0?a.revenue/a.reps:0;
-    a.dropSize=a.soldCount>0?a.cases/a.soldCount:0;
-    a.avgComp=a.reps>0?a.compliance/a.reps:0;
-    a.convRate=a.outletCount>0?Math.min(a.soldCount/a.outletCount*100,100):0;
-    a.compliant=a.repList.filter(function(r){return(r.compliance||0)>=100;}).length;
+  const asms = Object.values(asmMap).map(function(a){
+    a.avgRev   = a.reps>0 ? a.revenue/a.reps : 0;
+    a.dropSize = a.soldCount>0 ? a.cases/a.soldCount : 0;
+    a.avgComp  = a.reps>0 ? a.compliance/a.reps : 0;
+    a.convRate = a.outletCount>0 ? Math.min(a.soldCount/a.outletCount*100,100) : 0;
+    a.compliant= a.repList.filter(function(r){return(r.compliance||0)>=100;}).length;
     return a;
   }).sort(function(a,b){return b.revenue-a.revenue;});
 
   if(!asms.length){
-    document.getElementById('asm-body').innerHTML='<div class="empty"><div class="ico">🔍</div><h3>No ASM data found</h3><p>Ensure your Atte sheets have ASM names in the correct column</p></div>';
+    document.getElementById('asm-body').innerHTML='<div class="empty"><div class="ico">🔍</div><h3>No ASM data found</h3><p>Select an ASM or region to filter, or check your data</p></div>';
     return;
   }
 
-  const totalRev=asms.reduce(function(s,a){return s+a.revenue;},0)||1;
-  const totalReps=asms.reduce(function(s,a){return s+a.reps;},0);
-  const topASM=asms[0];
+  const totalRev  = asms.reduce(function(s,a){return s+a.revenue;},0)||1;
+  const totalReps = asms.reduce(function(s,a){return s+a.reps;},0);
+  const topASM    = asms[0];
 
-  // Region filter pills
-  const regions=[...new Set(Object.values(D.reps).filter(function(r){return r.asm&&!r.isManager;}).map(function(r){return r.region;}))].filter(Boolean);
-  document.getElementById('asm-rgn-pills').innerHTML=['All',...regions].map(function(r){
-    const active=(r==='All'&&!asmRgnFilter)||r===asmRgnFilter;
-    const col=r==='All'?'var(--grn)':(RC[r]||'var(--grn)');
-    return '<button onclick="asmRgnFilter=\''+(r==='All'?'':r)+'\';renderASM()" style="padding:5px 14px;border-radius:20px;border:1px solid '+(active?col:'var(--bdr)')+';background:'+(active?col+'22':'none')+';color:'+(active?col:'var(--dim)')+';font-family:var(--fm);font-size:10px;font-weight:700;cursor:pointer;letter-spacing:1px;transition:all .2s">'+r+'</button>';
-  }).join('');
+  // Status line
+  const parts = [];
+  if(asmRgnFilter) parts.push('Region: <strong style="color:'+(RC[asmRgnFilter]||'var(--grn)')+'">'+asmRgnFilter+'</strong>');
+  if(activeASM)    parts.push('ASM: <strong style="color:var(--amb)">'+activeASM+'</strong>');
+  document.getElementById('asm-status').innerHTML = parts.length
+    ? parts.join(' · ')+' <span style="color:var(--dim)">— use filters to change</span>'
+    : 'Showing all '+asms.length+' ASMs · Select region above or ASM from top bar to filter';
 
-  document.getElementById('asm-count-lbl').textContent=asms.length+' ASMs · '+totalReps+' Reps';
+  document.getElementById('asm-count-lbl').textContent = asms.length+' ASM'+(asms.length!==1?'s':'')+' · '+totalReps+' Reps';
 
   // Summary KPIs
-  // Avg compliance = straight average across all individual reps (same as Overview)
-  const totalRepCount = asms.reduce(function(s,a){return s+a.reps;},0);
-  const totalCompSum  = asms.reduce(function(s,a){return s+a.compliance;},0);
-  const avgComp = totalRepCount>0 ? totalCompSum/totalRepCount : 0;
+  const totalCompSum = asms.reduce(function(s,a){return s+a.compliance;},0);
+  const avgComp = totalReps>0 ? totalCompSum/totalReps : 0;
   document.getElementById('asm-kpis').innerHTML=[
-    {l:'Total Team Revenue',v:fm(totalRev),vc:'c-g',c:'',s:'All ASMs combined'},
-    {l:'Top ASM',v:topASM.name,vc:'c-a',c:'a',s:fm(topASM.revenue)+' · '+topASM.region},
-    {l:'Total Reps Managed',v:totalReps,vc:'',c:'b',s:asms.length+' ASMs'},
-    {l:'Best Avg Rev / Rep',v:fm(Math.round(topASM.avgRev)),vc:'c-g',c:'',s:topASM.name},
-    {l:'Avg Compliance',v:avgComp.toFixed(1)+'%',vc:avgComp>=100?'c-g':avgComp>=75?'c-a':'c-r',c:'',s:'Outlets visited vs 220'},
+    activeASM
+      ? {l:'Team Revenue',       v:fm(totalRev),                  vc:'c-g', c:'',  s:topASM.region}
+      : {l:'Total Team Revenue', v:fm(totalRev),                  vc:'c-g', c:'',  s:(asmRgnFilter||'All regions')},
+    activeASM
+      ? {l:'Reps in Team',       v:totalReps,                     vc:'',    c:'b',  s:activeASM}
+      : {l:'Top ASM',            v:topASM.name,                   vc:'c-a', c:'a',  s:fm(topASM.revenue)+' · '+topASM.region},
+    {l:'Avg Rev / Rep',    v:fm(Math.round(totalRev/Math.max(totalReps,1))), vc:'c-g', c:'', s:'Across this selection'},
+    {l:'Avg Compliance',   v:avgComp.toFixed(1)+'%', vc:avgComp>=100?'c-g':avgComp>=75?'c-a':'c-r', c:'', s:asms.reduce(function(s,a){return s+a.compliant;},0)+'/'+totalReps+' reps at target (220)'},
   ].map(function(k){return '<div class="kc '+k.c+'"><div class="kc-lbl">'+k.l+'</div><div class="kc-val '+k.vc+'">'+k.v+'</div><div class="kc-sub">'+k.s+'</div></div>';}).join('');
 
-  // Full table
-  document.getElementById('asm-tbl-cnt').textContent=asms.length+' ASMs';
-  document.getElementById('asm-tbl-body').innerHTML=asms.map(function(a,i){
-    const rgnColor=RC[a.region]||'var(--grn)';
-    const share=(a.revenue/totalRev*100).toFixed(1);
-    const compColor=a.avgComp>=100?'var(--grn)':a.avgComp>=75?'var(--amb)':'var(--red)';
+  // ASM ranking table
+  document.getElementById('asm-tbl-cnt').textContent = asms.length+' ASMs';
+  document.getElementById('asm-tbl-body').innerHTML = asms.map(function(a,i){
+    const rgnColor  = RC[a.region]||'var(--grn)';
+    const share     = (a.revenue/totalRev*100).toFixed(1);
+    const compColor = a.avgComp>=100?'var(--grn)':a.avgComp>=75?'var(--amb)':'var(--red)';
     return '<tr>'
       +'<td style="color:var(--dim)">'+(i+1)+'</td>'
       +'<td style="font-family:var(--fb);font-size:13px;font-weight:600;color:var(--pur)">'+a.name+'</td>'
@@ -2848,23 +2977,29 @@ function renderASM(){
       +'<td>'+fn(a.cases)+'</td>'
       +'<td>'+fn(a.soldCount)+'</td>'
       +'<td style="color:var(--amb)">'+(a.dropSize>0?a.dropSize.toFixed(1)+' cs':'—')+'</td>'
-      +'<td><span style="color:'+compColor+';font-weight:700">'+a.avgComp.toFixed(0)+'%</span><span style="font-size:9px;color:var(--dim);margin-left:4px">('+a.compliant+'/'+a.reps+')</span></td>'
+      +'<td><span style="color:'+compColor+';font-weight:700">'+a.avgComp.toFixed(0)+'%</span>'
+      +'<span style="font-size:9px;color:var(--dim);margin-left:4px">('+a.compliant+'/'+a.reps+')</span></td>'
       +'<td>'+cbadge(a.convRate)+'</td>'
-      +'<td><div style="display:flex;align-items:center;gap:6px"><div style="width:50px;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden"><div style="width:'+share+'%;height:100%;background:'+rgnColor+';border-radius:2px"></div></div><span style="font-size:10px;color:var(--dim)">'+share+'%</span></div></td>'
+      +'<td><div style="display:flex;align-items:center;gap:6px">'
+      +'<div style="width:50px;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden">'
+      +'<div style="width:'+share+'%;height:100%;background:'+rgnColor+';border-radius:2px"></div></div>'
+      +'<span style="font-size:10px;color:var(--dim)">'+share+'%</span></div></td>'
       +'</tr>';
   }).join('');
 
-  // Per-rep breakdown per ASM
+  // Rep breakdown per ASM
   document.getElementById('asm-rep-breakdown').innerHTML=
-    '<div class="sec-label" style="margin-top:8px"><span style="color:var(--pur)">▪</span> Rep Breakdown by ASM</div>'
+    '<div class="sec-label" style="margin-top:8px"><span style="color:var(--pur)">▪</span> Rep Breakdown'+(activeASM?' — '+activeASM:' by ASM')+'</div>'
     +asms.map(function(a){
-      const rgnColor=RC[a.region]||'var(--grn)';
-      const repsSorted=a.repList.slice().sort(function(x,y){return y.revenue-x.revenue;});
+      const rgnColor   = RC[a.region]||'var(--grn)';
+      const repsSorted = a.repList.slice().sort(function(x,y){return y.revenue-x.revenue;});
       return '<div class="tb" style="margin-bottom:18px">'
-        +'<div class="tb-hd"><span style="color:'+rgnColor+'">▪</span>'
+        +'<div class="tb-hd">'
+        +'<span style="color:'+rgnColor+'">▪</span>'
         +'<span style="color:var(--pur);font-family:var(--fb);font-size:13px;font-weight:700;margin-left:4px">'+a.name+'</span>'
         +'<span style="font-family:var(--fm);font-size:9px;color:'+rgnColor+';margin-left:8px;text-transform:uppercase;letter-spacing:1px">'+a.region+'</span>'
-        +'<span class="tb-cnt">'+a.reps+' REPS · '+fm(a.revenue)+'</span></div>'
+        +'<span class="tb-cnt">'+a.reps+' REPS · '+fm(a.revenue)+'</span>'
+        +'</div>'
         +'<div style="overflow-x:auto"><table><thead><tr>'
         +'<th>#</th><th>Code</th><th>Name</th><th>Revenue</th><th>Cases</th>'
         +'<th>Outlets Met</th><th>Customers Sold</th><th>Drop Size</th><th>Compliance</th><th>Conv.</th>'
@@ -2889,10 +3024,10 @@ function renderASM(){
 
   // Charts
   setTimeout(function(){
-    const names=asms.map(function(a){return a.name.split(' ')[0];});
-    const colors=asms.map(function(a){return RC[a.region]||'var(--grn)';});
-    barCh('c-asm-rev',names,asms.map(function(a){return a.revenue;}),colors);
-    barCh('c-asm-avg',names,asms.map(function(a){return Math.round(a.avgRev);}),colors);
+    const names  = asms.map(function(a){return a.name.split(' ')[0];});
+    const colors = asms.map(function(a){return RC[a.region]||'var(--grn)';});
+    barCh('c-asm-rev', names, asms.map(function(a){return a.revenue;}), colors);
+    barCh('c-asm-avg', names, asms.map(function(a){return Math.round(a.avgRev);}), colors);
   },100);
 }
 
