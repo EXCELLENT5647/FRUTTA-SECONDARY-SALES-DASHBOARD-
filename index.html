@@ -399,6 +399,7 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
   <button class="ntab" onclick="sw('east',this)"><span class="dot"></span>East</button>
   <button class="ntab" onclick="sw('west',this)"><span class="dot"></span>West</button>
   <button class="ntab" onclick="sw('ka',this)"><span class="dot"></span>Key Account</button>
+  <button class="ntab" onclick="sw('asm',this)"><span class="dot"></span>ASM Scorecard</button>
   <button class="ntab" onclick="sw('intel',this)"><span class="dot"></span>Intelligence</button>
   <button class="ntab" id="upl-tab" onclick="sw('upl',this)">⬆ Upload</button>
 </nav>
@@ -568,11 +569,42 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
       </div>
     </div>
 
-    <!-- DAILY PERFORMANCE HEATMAP -->
-    <div class="sec-label"><span style="color:var(--grn)">▪</span> Daily Revenue Heatmap</div>
-    <div class="cc" style="margin-bottom:22px">
-      <div id="intel-heatmap" style="display:flex;flex-wrap:wrap;gap:6px;padding:4px"></div>
+  </div>
+</div>
+
+<!-- ASM SCORECARD -->
+<div id="view-asm" class="view">
+  <div id="asm-empty" class="empty"><div class="ico">👔</div><h3>Upload report to view ASM Scorecard</h3><p>All ASM metrics are built automatically from your file</p></div>
+  <div id="asm-body" style="display:none">
+    <div class="sh">
+      <div class="sh-title">ASM SCORECARD</div>
+      <span class="badge b-grn">MTD</span>
+      <span class="badge b-amb" id="asm-region-badge" style="display:none"></span>
+      <span class="sh-meta" id="asm-count-lbl"></span>
     </div>
+    <!-- REGION FILTER PILLS -->
+    <div id="asm-rgn-pills" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px"></div>
+    <!-- SUMMARY KPI CARDS -->
+    <div class="kg" id="asm-kpis" style="margin-bottom:22px"></div>
+    <!-- CHART ROW -->
+    <div class="cg g2" style="margin-bottom:22px">
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Revenue by ASM</div><div class="cw tall"><canvas id="c-asm-rev"></canvas></div></div>
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Avg Revenue per Rep by ASM</div><div class="cw tall"><canvas id="c-asm-avg"></canvas></div></div>
+    </div>
+    <!-- FULL ASM TABLE -->
+    <div class="tb">
+      <div class="tb-hd"><span style="color:var(--pur)">▪</span>Full ASM Scorecard<span class="tb-cnt" id="asm-tbl-cnt"></span></div>
+      <div style="overflow-x:auto">
+        <table><thead><tr>
+          <th>#</th><th>ASM</th><th>Region</th><th>Reps</th>
+          <th>Team Revenue</th><th>Avg Rev/Rep</th><th>Cases</th>
+          <th>Customers Sold</th><th>Drop Size</th><th>Compliance</th><th>Conv. Rate</th><th>Rev Share</th>
+        </tr></thead>
+        <tbody id="asm-tbl-body"></tbody></table>
+      </div>
+    </div>
+    <!-- PER-REP BREAKDOWN -->
+    <div id="asm-rep-breakdown"></div>
   </div>
 </div>
 
@@ -1444,6 +1476,25 @@ function parseWB(wb){
     if(reg[r].metCount < reg[r].soldCount) reg[r].metCount = reg[r].soldCount;
     reg[r].conv = reg[r].metCount>0 ? Math.min(reg[r].soldCount/reg[r].metCount*100, 100) : 0;
   }
+  /* ── Parse working days from Time gone sheet FIRST (needed for compliance pacing) ── */
+  let workDaysInMonth=23, workDaysGone=23, workDaysLeft=0, daysInMonth=28;
+  const wsTG = wb.Sheets['Time gone'];
+  if(wsTG){
+    const tgRows = XLSX.utils.sheet_to_json(wsTG,{header:1,defval:null});
+    tgRows.forEach(function(r){
+      if(!r) return;
+      const label = String(r[6]||'').toLowerCase();
+      const val   = parseFloat(r[5]);
+      if(!isNaN(val)){
+        if(label.includes('days in the month')) daysInMonth    = val;
+        if(label.includes('working days'))      workDaysInMonth= val;
+        if(label.includes('days gone'))         workDaysGone   = val;
+        if(label.includes('balance'))           workDaysLeft   = Math.max(0,val);
+      }
+    });
+  }
+
+  /* ── Rep finalisation & compliance ── */
   for(const code of Object.keys(reps)){
     const rep = reps[code];
     rep.outletCount = rep.outlets   instanceof Set ? rep.outlets.size   : 0;
@@ -1451,7 +1502,7 @@ function parseWB(wb){
     // A rep cannot sell to more customers than they visited — floor outletCount at soldCount
     if(rep.outletCount < rep.soldCount) rep.outletCount = rep.soldCount;
     rep.conv = rep.outletCount>0 ? Math.min(rep.soldCount/rep.outletCount*100, 100) : 0;
-    // Compliance: unique outlets visited vs 220 target
+    // Compliance: unique outlets visited vs flat 220 target
     rep.compliance = Math.min(rep.outletCount / COMPLIANCE_TARGET * 100, 100);
   }
   // Region compliance = average of non-manager reps in region
@@ -1482,24 +1533,6 @@ function parseWB(wb){
   console.log('[Frutta v7-KA-fix] Parse complete. Regions:', 
     Object.fromEntries(REGIONS.map(r=>[r,{rev:reg[r].revenue, cases:reg[r].cases, att:reg[r].attCount, reps:Object.values(reps).filter(x=>x.region===r).length}])));
   console.log('[Frutta v6] Total reps in reps{}:', Object.keys(reps).length, '| Sample codes:', Object.keys(reps).slice(0,10));
-
-  /* ── Parse working days from Time gone sheet ── */
-  let workDaysInMonth=23, workDaysGone=23, workDaysLeft=0, daysInMonth=28;
-  const wsTG = wb.Sheets['Time gone'];
-  if(wsTG){
-    const tgRows = XLSX.utils.sheet_to_json(wsTG,{header:1,defval:null});
-    tgRows.forEach(function(r){
-      if(!r) return;
-      const label = String(r[6]||'').toLowerCase();
-      const val   = parseFloat(r[5]);
-      if(!isNaN(val)){
-        if(label.includes('days in the month')) daysInMonth    = val;
-        if(label.includes('working days'))      workDaysInMonth= val;
-        if(label.includes('days gone'))         workDaysGone   = val;
-        if(label.includes('balance'))           workDaysLeft   = Math.max(0,val);
-      }
-    });
-  }
 
   return {overall:{revenue:tv,cases:tc,att:ta,met:tm,sold:ts},
     regions:reg, reps, daily, dailyAll,
@@ -1678,11 +1711,12 @@ function prog(pct,color){
 }
 
 /* ═══════════════════════════ RENDER ALL ════════════════════ */
-function renderAll(){renderOV();renderGMD();for(const r of REGIONS)renderRgn(r);renderIntel();}
+function renderAll(){renderOV();renderGMD();for(const r of REGIONS)renderRgn(r);renderIntel();renderASM();}
 function renderView(id){
   if(id==='ov') renderOV();
   else if(id==='gmd') renderGMD();
   else if(id==='intel') renderIntel();
+  else if(id==='asm') renderASM();
   else{const r=Object.entries(RK).find(([,k])=>k===id)?.[0]; if(r) renderRgn(r);}
 }
 
@@ -1694,8 +1728,8 @@ function renderOV(){
   const o=fOverall();
   const dates=Object.keys(D.dailyAll).sort();
   if(dates.length) document.getElementById('ov-period').textContent=dates[0]+' → '+dates[dates.length-1];
-  // Overall compliance = average across all reps
-  const allReps = Object.values(D.reps);
+  // Overall compliance = average across non-manager reps only
+  const allReps = Object.values(D.reps).filter(r=>!r.isManager);
   const overallCompliance = allReps.length>0 ? allReps.reduce((s,r)=>s+(r.compliance||0),0)/allReps.length : 0;
   const compliantTotal = allReps.filter(r=>(r.compliance||0)>=100).length;
   document.getElementById('ov-kpis').innerHTML=[
@@ -1707,7 +1741,7 @@ function renderOV(){
     {l:'Customers Sold To',v:fn(o.sold),    vc:'c-a',c:'a',s:'Unique MTD'},
     {l:'Drop Size',        v:(o.sold>0?(o.cases/o.sold).toFixed(1):'-')+' cs',vc:'c-p',c:'p',s:'Avg cases per customer'},
     {l:'Overall Conv.',    v:fp(o.met>0?o.sold/o.met*100:0),vc:'',c:'',s:'Sold ÷ Visited'},
-    {l:'Avg Compliance',   v:fp(overallCompliance),vc:overallCompliance>=100?'c-g':overallCompliance>=75?'c-a':'',c:'',s:`${compliantTotal}/${allReps.length} reps at target (220)`},
+    {l:'Avg Compliance', v:fp(overallCompliance),vc:overallCompliance>=100?'c-g':overallCompliance>=75?'c-a':'',c:'',s:`${compliantTotal}/${allReps.length} reps at target (220)`},
   ].map(k=>`<div class="kc ${k.c}"><div class="kc-lbl">${k.l}</div><div class="kc-val ${k.vc}">${k.v}</div><div class="kc-sub">${k.s}</div></div>`).join('');
   const rL=REGIONS.filter(r=>r!=='Key Acct');
   const rdL=rL.map(r=>fRegion(r)), rdA=REGIONS.map(r=>fRegion(r));
@@ -1981,7 +2015,8 @@ function renderGMD(){
     </div>`;
 
   /* ── REGION HEALTH RAG ── */
-  // Score each region across 3 dimensions: conv%, drop size, attendance vs prior day trend
+  // Score each region across 4 dimensions: conv%, drop size, attendance, touchpoints (customers sold vs 220)
+
   const ragHtml = REGIONS.map(function(r){
     const rd=rdMap[r];
     const color=RC[r];
@@ -1989,8 +2024,16 @@ function renderGMD(){
     const dsRaw = rd.soldCount>0?rd.cases/rd.soldCount:0;
     const dsScore = dsRaw>=3?'grn':dsRaw>=1.5?'amb':'red';
     const attScore = rd.attCount>=10?'grn':rd.attCount>=5?'amb':'red';
+
+    // Touchpoint score: outlets visited vs flat 220/rep target
+    const tpTarget   = 220 * rd.attCount;
+    const tpActual   = rd.metCount;
+    const tpPct      = tpTarget>0 ? tpActual/tpTarget*100 : 100;
+    const tpScore    = tpPct>=90?'grn':tpPct>=70?'amb':'red';
+    const tpFullMth  = 220 * rd.attCount; // full month target for display
+
     const scores={grn:0,amb:0,red:0};
-    [convScore,dsScore,attScore].forEach(s=>scores[s]++);
+    [convScore,dsScore,attScore,tpScore].forEach(s=>scores[s]++);
     const overall = scores.red>=2?'red':scores.amb>=2?'amb':'grn';
     const overallColor = overall==='grn'?'var(--grn)':overall==='amb'?'var(--amb)':'var(--red)';
     const overallBg = overall==='grn'?'var(--grnd)':overall==='amb'?'var(--ambd)':'var(--redb)';
@@ -2020,6 +2063,14 @@ function renderGMD(){
           <span style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700">Active Reps</span>
           <span style="display:flex;align-items:center;gap:6px;font-family:var(--fn);font-size:12px;font-weight:800">${dot(attScore)} ${rd.attCount}</span>
         </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding-top:7px;border-top:1px solid rgba(255,255,255,.06)">
+          <span style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700">Touchpoints <span style="font-weight:400;opacity:.6">(Outlets Visited vs 220/rep)</span></span>
+          <span style="display:flex;align-items:center;gap:6px;font-family:var(--fn);font-size:12px;font-weight:800">${dot(tpScore)} ${fn(tpActual)} <span style="font-family:var(--fm);font-size:9px;color:var(--dim);font-weight:400">/ ${fn(tpTarget)} exp.</span></span>
+        </div>
+        <div style="height:3px;background:var(--bdr);border-radius:3px;overflow:hidden;margin-top:-4px">
+          <div style="height:100%;width:${Math.min(tpPct,100).toFixed(1)}%;background:${tpScore==='grn'?'var(--grn)':tpScore==='amb'?'var(--amb)':'var(--red)'};border-radius:3px;transition:width .5s"></div>
+        </div>
+        <div style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-top:-3px">${tpPct.toFixed(0)}% of target · Full month target: ${fn(tpFullMth)}</div>
       </div>
     </div>`;
   }).join('');
@@ -2375,14 +2426,30 @@ function doughnutCh(id, labels, data, colors){
   killCh(id);
   const el=document.getElementById(id); if(!el) return;
   const tc=getThemeColors();
+  const total = data.reduce((a,b)=>a+b,0)||1;
+  const isLight = document.body.classList.contains('light-mode');
   CH[id]=new Chart(el,{type:'doughnut',
-    data:{labels,datasets:[{data,backgroundColor:colors.map(c=>c+'99'),borderColor:colors,borderWidth:2,hoverOffset:8}]},
-    options:{responsive:true,maintainAspectRatio:false,cutout:'62%',
+    data:{labels,datasets:[{data,backgroundColor:colors.map(c=>c+'cc'),borderColor:colors,borderWidth:2,hoverOffset:10}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'58%',
       plugins:{
-        legend:{display:true,position:'right',labels:{color:tc.tick,font:{size:10,family:'Space Mono,monospace',weight:'700'},boxWidth:12,padding:10}},
+        legend:{display:true,position:'right',labels:{color:isLight?'#0d1f18':tc.tick,font:{size:10,family:'Space Mono,monospace',weight:'700'},boxWidth:12,padding:12}},
         tooltip:{backgroundColor:tc.ttBg,borderColor:tc.ttBdr,borderWidth:1,titleColor:tc.ttTtl,bodyColor:tc.ttBdy,
           callbacks:{label:function(ctx){const v=ctx.parsed; const tot=ctx.dataset.data.reduce((a,b)=>a+b,0); return ' ₦'+(v/1000000).toFixed(1)+'M ('+(v/tot*100).toFixed(1)+'%)';}}}
-      }},
+      },
+      datalabels:{
+        display:function(ctx){return ctx.dataset.data[ctx.dataIndex]/total*100 >= 4;},
+        color:isLight?'#0d1f18':'#ffffff',
+        font:{size:10,family:'Space Mono,monospace',weight:'700'},
+        formatter:function(value){
+          const pct=(value/total*100).toFixed(1);
+          const rev=value>=1000000?'₦'+(value/1000000).toFixed(1)+'M':'₦'+(value/1000).toFixed(0)+'k';
+          return rev+'\n'+pct+'%';
+        },
+        textAlign:'center',
+        anchor:'center',
+        align:'center',
+      }
+    },
     plugins:[ChartDataLabels]});
 }
 
@@ -2413,17 +2480,21 @@ function renderIntel(){
   const daysLeft = I.workDaysLeft||0;
   const daysTotal= I.workDaysInMonth||23;
   const daysInMth= I.daysInMonth||28;
+  // Always use real calendar date for Days Gone / Days in Month display
+  const _now       = new Date();
+  const calDayGone   = _now.getDate();
+  const calDaysInMth = new Date(_now.getFullYear(), _now.getMonth()+1, 0).getDate();
   // Working days actually elapsed = capped at total working days (balance<0 means all done)
   const wDaysElapsed = Math.min(daysGone, daysTotal);
   // Remaining working days = max(0, balance) — negative balance means month is over
   const wDaysLeft    = Math.max(0, daysLeft);
   const dailyRun = tv / Math.max(wDaysElapsed, 1);
   const projected= dailyRun * daysInMth;
-  const pctGone  = Math.min(daysGone/daysInMth*100, 100);
+  const pctGone  = Math.min(calDayGone/calDaysInMth*100, 100);
   const projLabel= wDaysLeft===0 ? 'Month complete — final figure' : 'Run Rate × '+daysInMth+' calendar days';
 
   document.getElementById('intel-runrate').innerHTML=[
-    {l:'Days Gone / Days in Month',v:daysGone+' / '+daysInMth,vc:'c-a',c:'a',s:pctGone.toFixed(0)+'% of month elapsed · '+daysTotal+' working days'},
+    {l:'Days Gone / Days in Month',v:calDayGone+' / '+calDaysInMth,vc:'c-a',c:'a',s:pctGone.toFixed(0)+'% of month elapsed · '+daysTotal+' working days'},
     {l:'Daily Run Rate',v:fm(Math.round(dailyRun)),vc:'c-g',c:'',s:'Avg revenue per working day'},
     {l:'Projected Month-End Rev',v:fm(Math.round(projected)),vc:'c-g',c:'',s:projLabel},
     {l:'Revenue / Productive Rep / Day',v:fm(Math.round(dailyRun/Math.max(Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length,1))),vc:'c-g',c:'',s:'Productive reps only (revenue > ₦0)'},
@@ -2457,7 +2528,7 @@ function renderIntel(){
 
   /* ── Channel legend + SKU table ── */
   const chansSorted = Object.entries(I.channels).filter(function(e){return e[0]!=='Unknown';}).sort(function(a,b){return b[1].revenue-a[1].revenue;});
-  const CHAN_COLORS = ['#3d9eff','#00e5a0','#f5a623','#a259ff','#ff4757'];
+  const CHAN_COLORS = ['#00e5a0','#3d9eff','#f5a623','#a259ff','#ff4757','#00b87d','#ffce56'];
   const skusSorted = Object.entries(I.skus).filter(function(e){return e[0]!=='Unknown';}).sort(function(a,b){return b[1].revenue-a[1].revenue;}).slice(0,10);
   const totalSkuRev = skusSorted.reduce(function(s,e){return s+e[1].revenue;},0)||1;
 
@@ -2476,20 +2547,6 @@ function renderIntel(){
       +'<div style="width:'+share+'%;height:100%;background:var(--grn);border-radius:2px"></div></div>'
       +'<span style="font-size:10px;color:var(--dim)">'+share+'%</span></div></td>'
       +'</tr>';
-  }).join('');
-
-  /* ── Daily heatmap ── */
-  const allDates = Object.keys(D.dailyAll).sort();
-  const maxDayRev= Math.max.apply(null, allDates.map(function(d){return D.dailyAll[d]||0;}));
-  document.getElementById('intel-heatmap').innerHTML = allDates.map(function(d){
-    const rev=D.dailyAll[d]||0;
-    const pct=maxDayRev>0?rev/maxDayRev:0;
-    const alpha=0.1+pct*0.85;
-    const label=d.slice(5);
-    return '<div title="'+d+': '+fm(rev)+'" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:default">'
-      +'<div style="width:44px;height:44px;border-radius:8px;background:rgba(0,229,160,'+alpha.toFixed(2)+');display:flex;align-items:center;justify-content:center;font-family:var(--fn);font-size:11px;font-weight:700;color:'+(pct>0.5?'var(--bg)':'var(--grn)')+'">'+label+'</div>'
-      +'<div style="font-family:var(--fm);font-size:8px;color:var(--dim)">'+(rev>=1000000?(rev/1000000).toFixed(1)+'M':(rev/1000).toFixed(0)+'k')+'</div>'
-      +'</div>';
   }).join('');
 
   /* ── Charts ── */
@@ -2709,6 +2766,135 @@ async function loadLiveData(silent){
 
 /* Auto-load on page open */
 loadLiveData(true);
+
+
+/* ═══════════════════════════ ASM SCORECARD ══════════════════ */
+let asmRgnFilter = null;
+
+function renderASM(){
+  document.getElementById('asm-empty').style.display='none';
+  document.getElementById('asm-body').style.display='';
+
+  const asmMap = {};
+  for(const code in D.reps){
+    const rep = D.reps[code];
+    if(!rep.asm || rep.isManager) continue;
+    if(activeASM && rep.asm !== activeASM) continue;
+    if(asmRgnFilter && rep.region !== asmRgnFilter) continue;
+    if(!asmMap[rep.asm]){
+      asmMap[rep.asm]={name:rep.asm,region:rep.region,revenue:0,cases:0,reps:0,soldCount:0,outletCount:0,compliance:0,repList:[]};
+    }
+    const a=asmMap[rep.asm];
+    a.revenue+=rep.revenue||0; a.cases+=rep.cases||0; a.reps+=1;
+    a.soldCount+=rep.soldCount||0; a.outletCount+=rep.outletCount||0;
+    a.compliance+=rep.compliance||0;
+    a.repList.push({...rep,code});
+  }
+
+  const asms=Object.values(asmMap).map(function(a){
+    a.avgRev=a.reps>0?a.revenue/a.reps:0;
+    a.dropSize=a.soldCount>0?a.cases/a.soldCount:0;
+    a.avgComp=a.reps>0?a.compliance/a.reps:0;
+    a.convRate=a.outletCount>0?Math.min(a.soldCount/a.outletCount*100,100):0;
+    a.compliant=a.repList.filter(function(r){return(r.compliance||0)>=100;}).length;
+    return a;
+  }).sort(function(a,b){return b.revenue-a.revenue;});
+
+  if(!asms.length){
+    document.getElementById('asm-body').innerHTML='<div class="empty"><div class="ico">🔍</div><h3>No ASM data found</h3><p>Ensure your Atte sheets have ASM names in the correct column</p></div>';
+    return;
+  }
+
+  const totalRev=asms.reduce(function(s,a){return s+a.revenue;},0)||1;
+  const totalReps=asms.reduce(function(s,a){return s+a.reps;},0);
+  const topASM=asms[0];
+
+  // Region filter pills
+  const regions=[...new Set(Object.values(D.reps).filter(function(r){return r.asm&&!r.isManager;}).map(function(r){return r.region;}))].filter(Boolean);
+  document.getElementById('asm-rgn-pills').innerHTML=['All',...regions].map(function(r){
+    const active=(r==='All'&&!asmRgnFilter)||r===asmRgnFilter;
+    const col=r==='All'?'var(--grn)':(RC[r]||'var(--grn)');
+    return '<button onclick="asmRgnFilter=\''+(r==='All'?'':r)+'\';renderASM()" style="padding:5px 14px;border-radius:20px;border:1px solid '+(active?col:'var(--bdr)')+';background:'+(active?col+'22':'none')+';color:'+(active?col:'var(--dim)')+';font-family:var(--fm);font-size:10px;font-weight:700;cursor:pointer;letter-spacing:1px;transition:all .2s">'+r+'</button>';
+  }).join('');
+
+  document.getElementById('asm-count-lbl').textContent=asms.length+' ASMs · '+totalReps+' Reps';
+
+  // Summary KPIs
+  // Avg compliance = straight average across all individual reps (same as Overview)
+  const totalRepCount = asms.reduce(function(s,a){return s+a.reps;},0);
+  const totalCompSum  = asms.reduce(function(s,a){return s+a.compliance;},0);
+  const avgComp = totalRepCount>0 ? totalCompSum/totalRepCount : 0;
+  document.getElementById('asm-kpis').innerHTML=[
+    {l:'Total Team Revenue',v:fm(totalRev),vc:'c-g',c:'',s:'All ASMs combined'},
+    {l:'Top ASM',v:topASM.name,vc:'c-a',c:'a',s:fm(topASM.revenue)+' · '+topASM.region},
+    {l:'Total Reps Managed',v:totalReps,vc:'',c:'b',s:asms.length+' ASMs'},
+    {l:'Best Avg Rev / Rep',v:fm(Math.round(topASM.avgRev)),vc:'c-g',c:'',s:topASM.name},
+    {l:'Avg Compliance',v:avgComp.toFixed(1)+'%',vc:avgComp>=100?'c-g':avgComp>=75?'c-a':'c-r',c:'',s:'Outlets visited vs 220'},
+  ].map(function(k){return '<div class="kc '+k.c+'"><div class="kc-lbl">'+k.l+'</div><div class="kc-val '+k.vc+'">'+k.v+'</div><div class="kc-sub">'+k.s+'</div></div>';}).join('');
+
+  // Full table
+  document.getElementById('asm-tbl-cnt').textContent=asms.length+' ASMs';
+  document.getElementById('asm-tbl-body').innerHTML=asms.map(function(a,i){
+    const rgnColor=RC[a.region]||'var(--grn)';
+    const share=(a.revenue/totalRev*100).toFixed(1);
+    const compColor=a.avgComp>=100?'var(--grn)':a.avgComp>=75?'var(--amb)':'var(--red)';
+    return '<tr>'
+      +'<td style="color:var(--dim)">'+(i+1)+'</td>'
+      +'<td style="font-family:var(--fb);font-size:13px;font-weight:600;color:var(--pur)">'+a.name+'</td>'
+      +'<td><span style="color:'+rgnColor+';font-family:var(--fn);font-weight:700;font-size:11px">'+a.region+'</span></td>'
+      +'<td style="color:var(--blu);font-weight:700">'+a.reps+'</td>'
+      +'<td style="color:var(--grn);font-weight:700">'+fm(a.revenue)+'</td>'
+      +'<td style="color:var(--pur)">'+fm(Math.round(a.avgRev))+'</td>'
+      +'<td>'+fn(a.cases)+'</td>'
+      +'<td>'+fn(a.soldCount)+'</td>'
+      +'<td style="color:var(--amb)">'+(a.dropSize>0?a.dropSize.toFixed(1)+' cs':'—')+'</td>'
+      +'<td><span style="color:'+compColor+';font-weight:700">'+a.avgComp.toFixed(0)+'%</span><span style="font-size:9px;color:var(--dim);margin-left:4px">('+a.compliant+'/'+a.reps+')</span></td>'
+      +'<td>'+cbadge(a.convRate)+'</td>'
+      +'<td><div style="display:flex;align-items:center;gap:6px"><div style="width:50px;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden"><div style="width:'+share+'%;height:100%;background:'+rgnColor+';border-radius:2px"></div></div><span style="font-size:10px;color:var(--dim)">'+share+'%</span></div></td>'
+      +'</tr>';
+  }).join('');
+
+  // Per-rep breakdown per ASM
+  document.getElementById('asm-rep-breakdown').innerHTML=
+    '<div class="sec-label" style="margin-top:8px"><span style="color:var(--pur)">▪</span> Rep Breakdown by ASM</div>'
+    +asms.map(function(a){
+      const rgnColor=RC[a.region]||'var(--grn)';
+      const repsSorted=a.repList.slice().sort(function(x,y){return y.revenue-x.revenue;});
+      return '<div class="tb" style="margin-bottom:18px">'
+        +'<div class="tb-hd"><span style="color:'+rgnColor+'">▪</span>'
+        +'<span style="color:var(--pur);font-family:var(--fb);font-size:13px;font-weight:700;margin-left:4px">'+a.name+'</span>'
+        +'<span style="font-family:var(--fm);font-size:9px;color:'+rgnColor+';margin-left:8px;text-transform:uppercase;letter-spacing:1px">'+a.region+'</span>'
+        +'<span class="tb-cnt">'+a.reps+' REPS · '+fm(a.revenue)+'</span></div>'
+        +'<div style="overflow-x:auto"><table><thead><tr>'
+        +'<th>#</th><th>Code</th><th>Name</th><th>Revenue</th><th>Cases</th>'
+        +'<th>Outlets Met</th><th>Customers Sold</th><th>Drop Size</th><th>Compliance</th><th>Conv.</th>'
+        +'</tr></thead><tbody>'
+        +repsSorted.map(function(r,i){
+          const cc=(r.compliance||0)>=100?'var(--grn)':(r.compliance||0)>=75?'var(--amb)':'var(--red)';
+          return '<tr>'
+            +'<td style="color:var(--dim)">'+(i+1)+'</td>'
+            +'<td style="color:'+rgnColor+'">'+r.code+'</td>'
+            +'<td class="td-nm">'+(r.name||'—')+'</td>'
+            +'<td style="color:var(--grn)">'+fm(r.revenue)+'</td>'
+            +'<td>'+fn(r.cases)+'</td>'
+            +'<td>'+fn(r.outletCount)+'</td>'
+            +'<td>'+fn(r.soldCount)+'</td>'
+            +'<td style="color:var(--amb)">'+(r.soldCount>0?(r.cases/r.soldCount).toFixed(1)+' cs':'—')+'</td>'
+            +'<td style="color:'+cc+';font-weight:700">'+((r.compliance||0).toFixed(0))+'%</td>'
+            +'<td>'+cbadge(r.conv||0)+'</td>'
+            +'</tr>';
+        }).join('')
+        +'</tbody></table></div></div>';
+    }).join('');
+
+  // Charts
+  setTimeout(function(){
+    const names=asms.map(function(a){return a.name.split(' ')[0];});
+    const colors=asms.map(function(a){return RC[a.region]||'var(--grn)';});
+    barCh('c-asm-rev',names,asms.map(function(a){return a.revenue;}),colors);
+    barCh('c-asm-avg',names,asms.map(function(a){return Math.round(a.avgRev);}),colors);
+  },100);
+}
 
 /* ═══════════════════════════ TOAST ══════════════════════════ */
 function toast(msg){
