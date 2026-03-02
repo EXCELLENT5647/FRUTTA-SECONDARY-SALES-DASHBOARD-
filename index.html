@@ -2628,9 +2628,10 @@ function renderIntel(){
   /* ── Brand KPIs ── */
   const brandsSorted = Object.entries(I.brands).filter(function(e){return e[0]!=='Unknown';}).sort(function(a,b){return b[1].revenue-a[1].revenue;});
   const BRAND_COLORS = ['#00e5a0','#3d9eff','#a259ff','#f5a623','#ff4757','#00b87d'];
+  const totalBrandRev = brandsSorted.reduce(function(s,e){return s+e[1].revenue;},0)||1;
   document.getElementById('intel-brand-kpis').innerHTML = brandsSorted.map(function(e,i){
     const [br,d]=e;
-    const share=(d.revenue/tv*100).toFixed(1);
+    const share=(d.revenue/totalBrandRev*100).toFixed(1);
     return '<div class="kc"><div class="kc-lbl" style="color:'+BRAND_COLORS[i%6]+'">'+br+'</div>'
       +'<div class="kc-val" style="color:'+BRAND_COLORS[i%6]+';font-size:22px">'+fm(d.revenue)+'</div>'
       +'<div class="kc-sub">'+fn(d.cases)+' cases · '+share+'% share</div></div>';
@@ -2644,7 +2645,7 @@ function renderIntel(){
 
   document.getElementById('intel-sku-tbl').innerHTML = skusSorted.map(function(e,i){
     const [sku,d]=e;
-    const share=(d.revenue/tv*100).toFixed(1);
+    const share=(d.revenue/totalSkuRev*100).toFixed(1);
     return '<tr>'
       +'<td style="color:var(--dim)">'+(i+1)+'</td>'
       +'<td style="font-family:var(--fb);font-size:12px">'+sku+'</td>'
@@ -2788,7 +2789,7 @@ async function confirmPublish(){
   }
   btn.disabled=true; btn.textContent='Publishing…'; st.textContent='';
   try{
-    const payload={data:D, publishedAt:new Date().toISOString()};
+    const payload={months:MONTHS, activeMonth:activeMonth, publishedAt:new Date().toISOString()};
     let jsonStr;
     try{ jsonStr=JSON.stringify(payload); }
     catch(e){ throw new Error('Data serialization failed: '+e.message); }
@@ -2858,14 +2859,25 @@ const GITHUB_USER = 'excellent5647';
 const GITHUB_REPO = 'FRUTTA-SECONDARY-SALES-DASHBOARD-';
 
 async function loadLiveData(silent){
-  // Try hardcoded public URL first (works for all viewers)
   const publicUrl = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data.json?_=${Date.now()}`;
   try{
     const r=await fetch(publicUrl);
     if(!r.ok) return;
     const json=await r.json();
-    if(json&&json.data){
-      D=json.data;
+
+    // Support both new multi-month format and old single-month format
+    if(json && json.months && Object.keys(json.months).length){
+      MONTHS = json.months;
+      activeMonth = json.activeMonth || Object.keys(MONTHS)[Object.keys(MONTHS).length-1];
+      D = MONTHS[activeMonth];
+      buildMonthSwitcher();
+      buildASMBar();
+      renderAll();
+      showLiveBadge(json.publishedAt||null);
+      if(!silent) toast('📡 Live data loaded — '+Object.keys(MONTHS).length+' month(s)');
+    } else if(json && json.data){
+      // Legacy single-month fallback
+      D = json.data;
       buildASMBar();
       renderAll();
       showLiveBadge(json.publishedAt||null);
