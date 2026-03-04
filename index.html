@@ -419,7 +419,11 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
   <div id="ov-empty" class="empty"><div class="ico">📊</div><h3>Upload your DATA.xlsx file</h3><p>Click "Upload Report" in the top right to get started</p></div>
   <div id="ov-body" style="display:none">
     <div class="sh"><div class="sh-title">OVERVIEW</div><span class="badge b-grn">MTD</span><span id="ov-asm" class="badge b-asm" style="display:none"></span><span class="sh-meta" id="ov-period"></span></div>
+
     <div class="kg" id="ov-kpis"></div>
+
+    <!-- REGION ACHIEVEMENT CARDS -->
+    <div id="ov-rgn-ach" style="display:none;margin-bottom:18px"></div>
 
     <!-- TOP 3 / BOTTOM 3 REPS -->
     <div id="ov-perf" style="display:none">
@@ -458,7 +462,7 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
       <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Avg Compliance % by Region <span style="font-size:9px;opacity:.6">(target 220)</span></div><div class="cw"><canvas id="c-ov-cmp"></canvas></div></div>
     </div>
     <div class="tb"><div class="tb-hd"><span style="color:var(--grn)">▪</span>Full Region Summary</div>
-      <div style="overflow-x:auto"><table><thead><tr><th>Region</th><th>MTD Revenue</th><th>Cases</th><th>Active</th><th>Productive</th><th>Outlets Met</th><th>Customers Sold</th><th>Conv. Rate</th><th>Compliance <span style="font-weight:400;font-size:9px;opacity:.7">/220</span></th><th>Rev. Share</th></tr></thead>
+      <div style="overflow-x:auto"><table><thead><tr><th>Region</th><th>MTD Revenue</th><th>Rev Target</th><th>Achieved</th><th>Cases</th><th>Cases Target</th><th>Active</th><th>Productive</th><th>Conv. Rate</th><th>Compliance <span style="font-weight:400;font-size:9px;opacity:.7">/220</span></th></tr></thead>
       <tbody id="ov-tbl"></tbody></table></div>
     </div>
   </div>
@@ -1002,9 +1006,14 @@ function handleFile(file){
 
 /* ═══════════════════════════ MONTH SWITCHER ══════════════════ */
 function buildMonthSwitcher(){
-  const keys=Object.keys(MONTHS);
   const bar=document.getElementById('month-bar');
-  if(keys.length<=1){ bar.style.display='none'; return; }
+  // Sort months chronologically using their dominantYM (YYYY-MM)
+  const keys=Object.keys(MONTHS).sort(function(a,b){
+    const ymA=(MONTHS[a].intel&&MONTHS[a].intel.dominantYM)||'0000-00';
+    const ymB=(MONTHS[b].intel&&MONTHS[b].intel.dominantYM)||'0000-00';
+    return ymA.localeCompare(ymB);
+  });
+  if(keys.length<=1){ bar.style.display='none'; updateNavPos(); return; }
   bar.style.display='flex';
   document.getElementById('month-pills').innerHTML=keys.map(function(k){
     const active=k===activeMonth;
@@ -1641,8 +1650,70 @@ function parseWB(wb){
     Object.fromEntries(REGIONS.map(r=>[r,{rev:reg[r].revenue, cases:reg[r].cases, att:reg[r].attCount, reps:Object.values(reps).filter(x=>x.region===r).length}])));
   console.log('[Frutta v6] Total reps in reps{}:', Object.keys(reps).length, '| Sample codes:', Object.keys(reps).slice(0,10));
 
+  /* ── Parse targets from regional sales sheets ── */
+  const SALES_SHEETS = {
+    'West Sales':'WEST', 'Lagos Sales':'LAGOS',
+    'East Sales':'EAST', 'North Sales':'NORTH', 'KA Sales':'Key Acct'
+  };
+  const repTargets  = {};
+  const regTargets  = {};
+  console.log('[Frutta targets] Available sheets:', wb.SheetNames);
+  for(const [sheetName, region] of Object.entries(SALES_SHEETS)){
+    const ws = wb.Sheets[sheetName];
+    if(!ws){ console.log('[Frutta targets] Sheet NOT FOUND:', sheetName); continue; }
+    const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:null});
+    // Find header row containing 'Target'
+    let hdrIdx = -1;
+    for(let i=0;i<rows.length;i++){
+      if(rows[i] && rows[i].some(function(v){return String(v||'').trim()==='Target';})){
+        hdrIdx=i; break;
+      }
+    }
+    if(hdrIdx<0){ console.log('[Frutta targets] No Target header in:', sheetName, '| First 6 rows:', rows.slice(0,6)); continue; }
+    const hdr = rows[hdrIdx];
+    const loginCol  = hdr.findIndex(function(v){return String(v||'').trim()==='Login ID';});
+    const targetCol = hdr.findIndex(function(v){return String(v||'').trim()==='Target';});
+    console.log('[Frutta targets]', sheetName, '| hdrIdx:', hdrIdx, '| loginCol:', loginCol, '| targetCol:', targetCol, '| header:', hdr.slice(0,8));
+    if(loginCol<0||targetCol<0) continue;
+    let regionTotal = 0;
+    for(let i=hdrIdx+1;i<rows.length;i++){
+      const row = rows[i];
+      if(!row||!row[loginCol]) continue;
+      const login  = String(row[loginCol]).trim();
+      const target = parseFloat(row[targetCol]);
+      if(login && !isNaN(target) && target>0){
+        repTargets[login] = target;
+        regionTotal += target;
+      }
+    }
+    regTargets[region] = regionTotal;
+    console.log('[Frutta targets]', region, '| total target cases:', regionTotal);
+  }
+
+  // Attach target to each rep via loginToCode bridge
+  for(const [login, target] of Object.entries(repTargets)){
+    const code = loginToCode[login] || login;
+    if(reps[code]) reps[code].targetCases = target;
+  }
+
+  // Calculate blended avg price per case from the 5 known brands only
+  const KNOWN_BRANDS = ['Frutta 1ltr','Maccaw','PET 50CL','PET 35CL','California'];
+  const totalSalesRev   = KNOWN_BRANDS.reduce(function(s,b){return s+(brands[b]?brands[b].revenue:0);},0);
+  const totalSalesCases = KNOWN_BRANDS.reduce(function(s,b){return s+(brands[b]?brands[b].cases:0);},0);
+  const blendedPrice    = totalSalesCases>0 ? totalSalesRev/totalSalesCases : 0;
+  console.log('[Frutta targets] Blended price: ₦'+Math.round(blendedPrice)+'/case | totalTargetCases:', Object.values(regTargets).reduce(function(s,v){return s+v;},0));
+
+  // Convert region case targets to revenue targets
+  const regRevTargets = {};
+  for(const [region, cases] of Object.entries(regTargets)){
+    regRevTargets[region] = Math.round(cases * blendedPrice);
+  }
+  const totalTargetCases = Object.values(regTargets).reduce(function(s,v){return s+v;},0);
+  const totalTargetRev   = Math.round(totalTargetCases * blendedPrice);
+
   return {overall:{revenue:tv,cases:tc,att:ta,met:tm,sold:ts},
     regions:reg, reps, daily, dailyAll,
+    targets:{repTargets, regTargets, regRevTargets, totalTargetCases, totalTargetRev, blendedPrice},
     intel:{brands, channels, skus, chanByRgn, brandByRgn, workDaysInMonth, workDaysGone, workDaysLeft, daysInMonth, dominantYM}};
 }
 
@@ -1660,16 +1731,16 @@ function fReps(rgn, includeManagers){
 function fRegion(rgn){
   if(!activeASM) return D.regions[rgn];
   const reps=fReps(rgn);
-  // Use Sets to deduplicate shared customers across reps — summing per-rep counts
-  // double-counts customers visited/sold by more than one rep in the same ASM group
   const metSet=new Set(), soldSet=new Set();
-  reps.forEach(r=>{
-    if(r.outlets instanceof Set) r.outlets.forEach(c=>metSet.add(c));
-    else if(r.outletCount>0){ /* fallback: already finalised */ }
-    if(r.custsSold instanceof Set) r.custsSold.forEach(c=>soldSet.add(c));
+  reps.forEach(function(r){
+    if(r.outlets instanceof Set) r.outlets.forEach(function(c){metSet.add(c);});
+    if(r.custsSold instanceof Set) r.custsSold.forEach(function(c){soldSet.add(c);});
   });
-  const metCount = Math.max(metSet.size, soldSet.size); // metCount >= soldCount always
-  const soldCount = soldSet.size;
+  // Fallback to counts if Sets already finalised
+  const metCount  = metSet.size>0  ? Math.max(metSet.size, soldSet.size)
+                                    : reps.reduce(function(s,r){return s+(r.outletCount||0);},0);
+  const soldCount = soldSet.size>0 ? soldSet.size
+                                   : reps.reduce(function(s,r){return s+(r.soldCount||0);},0);
   const compliance = reps.length>0 ? reps.reduce((s,r)=>s+(r.compliance||0),0)/reps.length : 0;
   const compliantCount = reps.filter(r=>(r.compliance||0)>=100).length;
   return{
@@ -1683,18 +1754,27 @@ function fRegion(rgn){
 }
 function fOverall(){
   if(!activeASM) return D.overall;
-  const reps=fReps(null);
-  const metSet=new Set(), soldSet=new Set();
-  reps.forEach(r=>{
-    if(r.outlets instanceof Set) r.outlets.forEach(c=>metSet.add(c));
-    if(r.custsSold instanceof Set) r.custsSold.forEach(c=>soldSet.add(c));
+  // Include zero-revenue reps for att count (active = checked in, not just productive)
+  const reps = fReps(null);
+  const allRepsInASM = Object.values(D.reps).filter(function(r){
+    return !r.isManager && r.asm === activeASM;
   });
-  const met  = Math.max(metSet.size, soldSet.size);
-  const sold = soldSet.size;
+  const metSet=new Set(), soldSet=new Set();
+  reps.forEach(function(r){
+    // Use Sets if still available, otherwise fall back to counts
+    if(r.outlets instanceof Set) r.outlets.forEach(function(c){metSet.add(c);});
+    if(r.custsSold instanceof Set) r.custsSold.forEach(function(c){soldSet.add(c);});
+  });
+  // If Sets are empty (already finalised to counts), sum the counts directly
+  const met  = metSet.size>0  ? Math.max(metSet.size, soldSet.size)
+                               : reps.reduce(function(s,r){return s+(r.outletCount||0);},0);
+  const sold = soldSet.size>0 ? soldSet.size
+                               : reps.reduce(function(s,r){return s+(r.soldCount||0);},0);
   return{
-    revenue:reps.reduce((s,r)=>s+r.revenue,0),
-    cases  :reps.reduce((s,r)=>s+r.cases,0),
-    att    :reps.length, met, sold,
+    revenue: reps.reduce(function(s,r){return s+r.revenue;},0),
+    cases  : reps.reduce(function(s,r){return s+r.cases;},0),
+    att    : allRepsInASM.length,  // all reps under this ASM, not just productive
+    met, sold,
   };
 }
 function asmBadge(el){
@@ -1796,6 +1876,45 @@ function lineCh(id,labels,series){
 const fm=n=>'₦'+Number(n||0).toLocaleString('en-NG',{maximumFractionDigits:0});
 const fn=n=>Number(n||0).toLocaleString();
 const fp=n=>Number(n||0).toFixed(1)+'%';
+
+/* ── Target-aware KPI card builder ──
+   Shows: label / actual value (large) / target + % achieved + mini bar
+   tgt=0 → plain card with no target row                            */
+function tgtCard(label, actual, tgt, opts){
+  opts = opts || {};
+  const cls   = opts.cls   || '';
+  const valCls= opts.valCls|| 'c-g';
+  const sub   = opts.sub   || '';
+  const isCases = opts.isCases || false; // show fn() instead of fm()
+
+  const valFmt = isCases ? fn(actual) : fm(actual);
+  const tgtFmt = isCases ? fn(tgt)    : fm(tgt);
+
+  let tgtHtml = '';
+  if(tgt > 0){
+    const pct   = Math.min(actual / tgt * 100, 999);
+    const barW  = Math.min(pct, 100);
+    const col   = pct>=100 ? 'var(--grn)' : pct>=75 ? 'var(--amb)' : 'var(--red)';
+    tgtHtml =
+      '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bdr)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">'
+      +'<span style="font-family:var(--fm);font-size:9px;color:var(--dim);letter-spacing:1px">TARGET: '+tgtFmt+'</span>'
+      +'<span style="font-family:var(--fn);font-size:14px;font-weight:700;color:'+col+'">'+pct.toFixed(1)+'%</span>'
+      +'</div>'
+      +'<div style="width:100%;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden">'
+      +'<div style="width:'+barW+'%;height:100%;background:'+col+';border-radius:2px"></div>'
+      +'</div>'
+      +'</div>';
+  } else if(sub){
+    tgtHtml = '<div class="kc-sub">'+sub+'</div>';
+  }
+
+  return '<div class="kc '+cls+'">'
+    +'<div class="kc-lbl">'+label+'</div>'
+    +'<div class="kc-val '+valCls+'">'+valFmt+'</div>'
+    + tgtHtml
+    +'</div>';
+}
 function cbadge(p){
   const cls=p>=65?'cg-ok':p>=40?'cg-md':'cg-lo';
   return`<span class="cbadge ${cls}">${fp(p)}</span>`;
@@ -1839,17 +1958,50 @@ function renderOV(){
   const allReps = Object.values(D.reps).filter(r=>!r.isManager);
   const overallCompliance = allReps.length>0 ? allReps.reduce((s,r)=>s+(r.compliance||0),0)/allReps.length : 0;
   const compliantTotal = allReps.filter(r=>(r.compliance||0)>=100).length;
-  document.getElementById('ov-kpis').innerHTML=[
-    {l:'Total MTD Revenue',v:fm(o.revenue),vc:'c-g',c:'',s:'All Regions'},
-    {l:'Total Cases Sold', v:fn(o.cases),  vc:'',   c:'',s:'Units'},
-    {l:'Active Reps',      v:o.att,         vc:'',   c:'',s:'Checked in (incl. zero-rev)'},
-    {l:'Productive Reps',  v:Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length, vc:'c-g', c:'', s:'Reps with revenue > ₦0'},
-    {l:'Outlets Visited',  v:fn(o.met),     vc:'',   c:'',s:'Unique MTD'},
-    {l:'Customers Sold To',v:fn(o.sold),    vc:'c-a',c:'a',s:'Unique MTD'},
-    {l:'Drop Size',        v:(o.sold>0?(o.cases/o.sold).toFixed(1):'-')+' cs',vc:'c-p',c:'p',s:'Avg cases per customer'},
-    {l:'Overall Conv.',    v:fp(o.met>0?o.sold/o.met*100:0),vc:'',c:'',s:'Sold ÷ Visited'},
-    {l:'Avg Compliance', v:fp(overallCompliance),vc:overallCompliance>=100?'c-g':overallCompliance>=75?'c-a':'',c:'',s:`${compliantTotal}/${allReps.length} reps at target (220)`},
-  ].map(k=>`<div class="kc ${k.c}"><div class="kc-lbl">${k.l}</div><div class="kc-val ${k.vc}">${k.v}</div><div class="kc-sub">${k.s}</div></div>`).join('');
+
+  const T = D.targets || {};
+  const totalTargetRev   = T.totalTargetRev   || 0;
+  const totalTargetCases = T.totalTargetCases  || 0;
+
+  document.getElementById('ov-kpis').innerHTML=
+    tgtCard('Total MTD Revenue', o.revenue, totalTargetRev, {valCls:'c-g', sub:'All Regions'})
+   +tgtCard('Total Cases Sold',  o.cases,   totalTargetCases, {valCls:'', sub:'Units', isCases:true})
+   +`<div class="kc"><div class="kc-lbl">Active Reps</div><div class="kc-val">${o.att}</div><div class="kc-sub">Checked in (incl. zero-rev)</div></div>`
+   +`<div class="kc"><div class="kc-lbl">Productive Reps</div><div class="kc-val c-g">${Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length}</div><div class="kc-sub">Reps with revenue > ₦0</div></div>`
+   +`<div class="kc"><div class="kc-lbl">Outlets Visited</div><div class="kc-val">${fn(o.met)}</div><div class="kc-sub">Unique MTD</div></div>`
+   +`<div class="kc a"><div class="kc-lbl">Customers Sold To</div><div class="kc-val c-a">${fn(o.sold)}</div><div class="kc-sub">Unique MTD</div></div>`
+   +`<div class="kc p"><div class="kc-lbl">Drop Size</div><div class="kc-val c-p">${o.sold>0?(o.cases/o.sold).toFixed(1):'-'} cs</div><div class="kc-sub">Avg cases per customer</div></div>`
+   +`<div class="kc"><div class="kc-lbl">Overall Conv.</div><div class="kc-val">${fp(o.met>0?o.sold/o.met*100:0)}</div><div class="kc-sub">Sold ÷ Visited</div></div>`
+   +`<div class="kc"><div class="kc-lbl">Avg Compliance</div><div class="kc-val ${overallCompliance>=100?'c-g':overallCompliance>=75?'c-a':''}">${fp(overallCompliance)}</div><div class="kc-sub">${compliantTotal}/${allReps.length} reps at target (220)</div></div>`;
+  // Region achievement cards
+  const rgnAchEl = document.getElementById('ov-rgn-ach');
+  const rgnCards = REGIONS.map(function(r){
+    const rd  = fRegion(r);
+    const rgt = (T.regRevTargets && T.regRevTargets[r]) || 0;
+    const rct = (T.regTargets    && T.regTargets[r])    || 0;
+    if(!rgt) return '';
+    const pct  = Math.min(rd.revenue/rgt*100, 999);
+    const col  = pct>=100?'var(--grn)':pct>=75?'var(--amb)':'var(--red)';
+    const barW = Math.min(pct,100);
+    const rc   = RC[r]||'var(--grn)';
+    return '<div style="flex:1;min-width:140px;background:var(--card);border:1px solid var(--bdr);border-radius:12px;padding:14px 16px">'
+      +'<div style="font-family:var(--fm);font-size:9px;letter-spacing:1.5px;color:'+rc+';margin-bottom:4px">'+r+'</div>'
+      +'<div style="font-family:var(--fn);font-size:24px;font-weight:700;color:'+col+'">'+pct.toFixed(1)+'%</div>'
+      +'<div style="width:100%;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden;margin:6px 0">'
+      +'<div style="width:'+barW+'%;height:100%;background:'+col+';border-radius:2px"></div></div>'
+      +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim)">ACH: <span style="color:var(--fg)">'+fm(rd.revenue)+'</span></div>'
+      +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim)">TGT: '+fm(rgt)+'</div>'
+      +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim)">CASES: <span style="color:var(--fg)">'+fn(rd.cases)+'</span> / '+fn(rct)+'</div>'
+      +'</div>';
+  }).join('');
+  if(rgnCards.replace(/<[^>]+>/g,'').trim()){
+    rgnAchEl.style.display='';
+    rgnAchEl.innerHTML='<div style="font-family:var(--fm);font-size:9px;letter-spacing:2px;color:var(--dim);margin-bottom:8px">ACHIEVEMENT BY REGION</div>'
+      +'<div style="display:flex;flex-wrap:wrap;gap:10px">'+rgnCards+'</div>';
+  } else {
+    rgnAchEl.style.display='none';
+  }
+
   const rL=REGIONS.filter(r=>r!=='Key Acct');
   const rdL=rL.map(r=>fRegion(r)), rdA=REGIONS.map(r=>fRegion(r));
   setTimeout(()=>{
@@ -1863,17 +2015,21 @@ function renderOV(){
   document.getElementById('ov-tbl').innerHTML=REGIONS.map(r=>{
     const rd=fRegion(r);
     const prodCount=fReps(r).filter(function(rep){return rep.revenue>0;}).length;
+    const rgt = (T.regRevTargets  && T.regRevTargets[r])  || 0;
+    const rct = (T.regTargets     && T.regTargets[r])     || 0;
+    const pct = rgt>0 ? Math.min(rd.revenue/rgt*100,999) : null;
+    const pctColor = pct===null?'var(--dim)':pct>=100?'var(--grn)':pct>=75?'var(--amb)':'var(--red)';
     return`<tr>
       <td><span style="color:${RC[r]};font-family:var(--fn);font-weight:700">${r}</span></td>
       <td style="color:var(--grn)">${fm(rd.revenue)}</td>
+      <td style="color:var(--dim);font-size:11px">${rgt>0?fm(rgt):'—'}</td>
+      <td>${pct!==null?`<span style="color:${pctColor};font-weight:700">${pct.toFixed(1)}%</span><div style="margin-top:3px;width:60px;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden"><div style="width:${Math.min(pct,100)}%;height:100%;background:${pctColor};border-radius:2px"></div></div>`:'—'}</td>
       <td>${fn(rd.cases)}</td>
+      <td style="color:var(--dim);font-size:11px">${rct>0?fn(rct):'—'}</td>
       <td style="color:var(--blu)">${rd.attCount}</td>
       <td style="color:var(--grn);font-weight:700">${prodCount} <span style="font-size:9px;color:var(--dim)">(${rd.attCount>0?Math.round(prodCount/rd.attCount*100):0}%)</span></td>
-      <td>${fn(rd.metCount)}</td>
-      <td>${fn(rd.soldCount)}</td>
       <td>${cbadge(rd.conv)}</td>
       <td>${compbadge(rd.compliance||0)}</td>
-      <td>${prog(rd.revenue/tv*100,RC[r])}</td>
     </tr>`;
   }).join('');
 
@@ -2034,17 +2190,19 @@ function renderGMD(){
   const dailyRun=o.revenue/Math.max(wDaysElapsed,1);
   const projected=Math.round(dailyRun*daysInMth);
   const overallDropSize=o.sold>0?(o.cases/o.sold).toFixed(1)+' cs':'—';
-  document.getElementById('gmd-kpis').innerHTML=[
-    {l:'MTD Total Revenue',v:fm(o.revenue),vc:'c-a',c:'a',s:'All regions combined'},
-    {l:'Projected Month-End',v:fm(projected),vc:'c-g',c:'',s:'Run rate × '+daysInMth+' days'},
-    {l:'Total Cases',v:fn(o.cases),vc:'',c:'',s:'Units sold MTD'},
-    {l:'Active Reps',v:o.att,vc:'c-b',c:'b',s:'Checked in (incl. zero-rev)'},
-    {l:'Productive Reps',v:Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length,vc:'c-g',c:'',s:'Reps with revenue > ₦0'},
-    {l:'Customers Sold',v:fn(o.sold),vc:'c-g',c:'',s:'Unique MTD'},
-    {l:'Conv. Rate',v:fp(o.met>0?o.sold/o.met*100:0),vc:'c-p',c:'p',s:'Sold ÷ Outlets visited'},
-    {l:'Drop Size',v:overallDropSize,vc:'c-p',c:'p',s:'Avg cases per customer'},
-    {l:'Daily Run Rate',v:fm(Math.round(dailyRun)),vc:'c-a',c:'a',s:'Avg per working day'},
-  ].map(k=>`<div class="kc ${k.c}"><div class="kc-lbl">${k.l}</div><div class="kc-val ${k.vc}">${k.v}</div><div class="kc-sub">${k.s||''}</div></div>`).join('');
+  const TG = D.targets || {};
+  const gmdTargetRev   = TG.totalTargetRev   || 0;
+  const gmdTargetCases = TG.totalTargetCases  || 0;
+  document.getElementById('gmd-kpis').innerHTML=
+    tgtCard('MTD Total Revenue',   o.revenue,        gmdTargetRev,   {valCls:'c-a', cls:'a', sub:'All regions combined'})
+   +tgtCard('Projected Month-End', projected,        gmdTargetRev,   {valCls:'c-g', sub:'Run rate × '+daysInMth+' days'})
+   +tgtCard('Total Cases',         o.cases,          gmdTargetCases, {valCls:'', sub:'Units sold MTD', isCases:true})
+   +`<div class="kc b"><div class="kc-lbl">Active Reps</div><div class="kc-val c-b">${o.att}</div><div class="kc-sub">Checked in (incl. zero-rev)</div></div>`
+   +`<div class="kc"><div class="kc-lbl">Productive Reps</div><div class="kc-val c-g">${Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length}</div><div class="kc-sub">Reps with revenue > ₦0</div></div>`
+   +`<div class="kc"><div class="kc-lbl">Customers Sold</div><div class="kc-val c-g">${fn(o.sold)}</div><div class="kc-sub">Unique MTD</div></div>`
+   +`<div class="kc p"><div class="kc-lbl">Conv. Rate</div><div class="kc-val c-p">${fp(o.met>0?o.sold/o.met*100:0)}</div><div class="kc-sub">Sold ÷ Outlets visited</div></div>`
+   +`<div class="kc p"><div class="kc-lbl">Drop Size</div><div class="kc-val c-p">${overallDropSize}</div><div class="kc-sub">Avg cases per customer</div></div>`
+   +`<div class="kc a"><div class="kc-lbl">Daily Run Rate</div><div class="kc-val c-a">${fm(Math.round(dailyRun))}</div><div class="kc-sub">Avg per working day</div></div>`;
 
   /* ── MOMENTUM CARD ── */
   // Split daily revenue into first-half and second-half of working days to detect acceleration
@@ -2462,14 +2620,27 @@ function renderRgn(regName){
 
   /* ── Table rows ── */
   let tblRows = '';
+  const T = D.targets || {};
+  const rgt = (T.regRevTargets  && T.regRevTargets[regName])  || 0;
+  const rct = (T.regTargets     && T.regTargets[regName])     || 0;
+  const rPct = rgt>0 ? Math.min(rd.revenue/rgt*100,999) : null;
+  const rPctColor = rPct===null?'var(--dim)':rPct>=100?'var(--grn)':rPct>=75?'var(--amb)':'var(--red)';
+
   reps.forEach(function(r,i){
+    const repTarget = r.targetCases || 0;
+    const repTargetRev = repTarget>0 && T.blendedPrice ? Math.round(repTarget * T.blendedPrice) : 0;
+    const repPct = repTargetRev>0 ? Math.min(r.revenue/repTargetRev*100,999) : null;
+    const repPctC = repPct===null?'var(--dim)':repPct>=100?'var(--grn)':repPct>=75?'var(--amb)':'var(--red)';
     tblRows += '<tr>'
       +'<td style="color:var(--dim)">'+(i+1)+'</td>'
       +'<td style="color:'+color+'">'+r.code+'</td>'
       +'<td class="td-nm">'+(r.name||'—')+'</td>'
       +'<td class="td-asm">'+(r.asm||'—')+'</td>'
       +'<td style="color:var(--grn)">'+fm(r.revenue)+'</td>'
+      +'<td style="color:var(--dim);font-size:11px">'+(repTargetRev>0?fm(repTargetRev):'—')+'</td>'
+      +'<td>'+(repPct!==null?'<span style="color:'+repPctC+';font-weight:700">'+repPct.toFixed(1)+'%</span>':'—')+'</td>'
       +'<td>'+fn(r.cases)+'</td>'
+      +'<td style="color:var(--dim);font-size:11px">'+(repTarget>0?fn(repTarget):'—')+'</td>'
       +'<td style="color:var(--pur);font-family:var(--fn);font-weight:700">'+(r.soldCount>0?(r.cases/r.soldCount).toFixed(1):'-')+' cs</td>'
       +'<td>'+fn(r.outletCount)+'</td>'
       +'<td>'+fn(r.soldCount)+'</td>'
@@ -2486,18 +2657,18 @@ function renderRgn(regName){
     +'<span class="sh-meta">'+reps.length+' Reps</span>'
     +'</div>'
     +'<div class="kg">'
-    +'<div class="kc"><div class="kc-lbl">MTD Revenue</div><div class="kc-val c-g">'+fm(rd.revenue)+'</div></div>'
-    +'<div class="kc"><div class="kc-lbl">Cases Sold</div><div class="kc-val">'+fn(rd.cases)+'</div></div>'
-    +'<div class="kc a"><div class="kc-lbl">Active Reps</div><div class="kc-val c-a">'+rd.attCount+'<span style="font-size:14px;color:var(--dim)"> checked in</span></div><div style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-top:3px">Incl. zero-revenue</div></div>'
-    +'<div class="kc" style="--acc:var(--grn)"><div class="kc-lbl">Productive Reps</div><div class="kc-val c-g">'+reps.filter(function(r){return r.revenue>0;}).length+'<span style="font-size:14px;color:var(--dim)"> selling</span></div><div style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-top:3px">Revenue > ₦0</div></div>'
+    +tgtCard('MTD Revenue', rd.revenue, rgt, {valCls:'c-g'})
+    +tgtCard('Cases Sold',  rd.cases,   rct, {valCls:'', isCases:true})
+    +'<div class="kc a"><div class="kc-lbl">Active Reps</div><div class="kc-val c-a">'+rd.attCount+'<span style="font-size:14px;color:var(--dim)"> checked in</span></div><div class="kc-sub">Incl. zero-revenue</div></div>'
+    +'<div class="kc"><div class="kc-lbl">Productive Reps</div><div class="kc-val c-g">'+reps.filter(function(r){return r.revenue>0;}).length+'<span style="font-size:14px;color:var(--dim)"> selling</span></div><div class="kc-sub">Revenue > ₦0</div></div>'
     +'<div class="kc b"><div class="kc-lbl">Outlets Met</div><div class="kc-val c-b">'+fn(rd.metCount)+'</div></div>'
     +'<div class="kc"><div class="kc-lbl">Customers Sold To</div><div class="kc-val">'+fn(rd.soldCount)+'</div></div>'
-    +'<div class="kc p"><div class="kc-lbl">Drop Size</div><div class="kc-val c-p">'+(rd.soldCount>0?(rd.cases/rd.soldCount).toFixed(1):'-')+' cs</div><div style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-top:3px">Avg cases per customer</div></div>'
+    +'<div class="kc p"><div class="kc-lbl">Drop Size</div><div class="kc-val c-p">'+(rd.soldCount>0?(rd.cases/rd.soldCount).toFixed(1):'-')+' cs</div><div class="kc-sub">Avg cases per customer</div></div>'
     +'<div class="kc p"><div class="kc-lbl">Conversion Rate</div><div class="kc-val c-p">'+fp(rd.conv)+'</div></div>'
     +'<div class="kc" style="border-color:'+compColor+'33">'
     +'<div class="kc-lbl">Avg Compliance <span style="font-size:9px;color:var(--dim)">(vs 220)</span></div>'
     +'<div class="kc-val" style="color:'+compColor+'">'+fp(rd.compliance||0)+'</div>'
-    +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-top:4px">'+(rd.compliantCount||0)+' of '+reps.length+' reps at target</div>'
+    +'<div class="kc-sub">'+(rd.compliantCount||0)+' of '+reps.length+' reps at target</div>'
     +'</div>'
     +'</div>'
     + perfHtml
@@ -2511,7 +2682,7 @@ function renderRgn(regName){
     +'<div style="overflow-x:auto">'
     +'<table><thead><tr>'
     +'<th>#</th><th>Code</th><th>Name</th><th>ASM</th>'
-    +'<th>Revenue</th><th>Cases</th><th>Drop Size</th><th>Outlets Met</th><th>Customers Sold</th><th>Conversion</th>'
+    +'<th>Revenue</th><th>Rev Target</th><th>Achieved%</th><th>Cases</th><th>Cases Target</th><th>Drop Size</th><th>Outlets Met</th><th>Customers Sold</th><th>Conversion</th>'
     +'<th>Compliance <span style="font-weight:400;font-size:9px;opacity:.7">/220</span></th>'
     +'</tr></thead><tbody>'
     +tblRows
@@ -2603,12 +2774,14 @@ function renderIntel(){
   const pctGone   = Math.min(calDayGone/calDaysInMth*100, 100);
   const projLabel = wDaysLeft===0 ? 'Month complete — final figure' : 'Run Rate × '+daysInMth+' calendar days';
 
-  document.getElementById('intel-runrate').innerHTML=[
-    {l:'Days Gone / Days in Month',v:calDayGone+' / '+calDaysInMth,vc:'c-a',c:'a',s:pctGone.toFixed(0)+'% of month elapsed · '+daysGone+' of '+daysTotal+' working days (Mon-Sat)'},
-    {l:'Daily Run Rate',v:fm(Math.round(dailyRun)),vc:'c-g',c:'',s:'Avg revenue per working day'},
-    {l:'Projected Month-End Rev',v:fm(Math.round(projected)),vc:'c-g',c:'',s:projLabel},
-    {l:'Revenue / Productive Rep / Day',v:fm(Math.round(dailyRun/Math.max(Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length,1))),vc:'c-g',c:'',s:'Productive reps only (revenue > ₦0)'},
-  ].map(function(k){return '<div class="kc '+k.c+'"><div class="kc-lbl">'+k.l+'</div><div class="kc-val '+k.vc+'">'+k.v+'</div><div class="kc-sub">'+k.s+'</div></div>';}).join('');
+  const TI = D.targets || {};
+  const intelTargetRev = TI.totalTargetRev || 0;
+
+  document.getElementById('intel-runrate').innerHTML=
+    `<div class="kc a"><div class="kc-lbl">Days Gone / Days in Month</div><div class="kc-val c-a">${calDayGone} / ${calDaysInMth}</div><div class="kc-sub">${pctGone.toFixed(0)}% elapsed · ${daysGone} of ${daysTotal} working days (Mon-Sat)</div></div>`
+   +`<div class="kc"><div class="kc-lbl">Daily Run Rate</div><div class="kc-val c-g">${fm(Math.round(dailyRun))}</div><div class="kc-sub">Avg revenue per working day</div></div>`
+   +tgtCard('Projected Month-End Rev', Math.round(projected), intelTargetRev, {valCls:'c-g', sub:projLabel})
+   +`<div class="kc"><div class="kc-lbl">Revenue / Productive Rep / Day</div><div class="kc-val c-g">${fm(Math.round(dailyRun/Math.max(Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length,1)))}</div><div class="kc-sub">Productive reps only (revenue > ₦0)</div></div>`;
 
   /* ── Zero Revenue Reps ── */
   const attReps = fReps(null);
@@ -2959,19 +3132,27 @@ function renderASM(){
 
   document.getElementById('asm-count-lbl').textContent = asms.length+' ASM'+(asms.length!==1?'s':'')+' · '+totalReps+' Reps';
 
-  // Summary KPIs
+  // Summary KPIs — compute target for this ASM/selection
+  const T = D.targets || {};
   const totalCompSum = asms.reduce(function(s,a){return s+a.compliance;},0);
   const avgComp = totalReps>0 ? totalCompSum/totalReps : 0;
-  document.getElementById('asm-kpis').innerHTML=[
-    activeASM
-      ? {l:'Team Revenue',       v:fm(totalRev),                  vc:'c-g', c:'',  s:topASM.region}
-      : {l:'Total Team Revenue', v:fm(totalRev),                  vc:'c-g', c:'',  s:(asmRgnFilter||'All regions')},
-    activeASM
-      ? {l:'Reps in Team',       v:totalReps,                     vc:'',    c:'b',  s:activeASM}
-      : {l:'Top ASM',            v:topASM.name,                   vc:'c-a', c:'a',  s:fm(topASM.revenue)+' · '+topASM.region},
-    {l:'Avg Rev / Rep',    v:fm(Math.round(totalRev/Math.max(totalReps,1))), vc:'c-g', c:'', s:'Across this selection'},
-    {l:'Avg Compliance',   v:avgComp.toFixed(1)+'%', vc:avgComp>=100?'c-g':avgComp>=75?'c-a':'c-r', c:'', s:asms.reduce(function(s,a){return s+a.compliant;},0)+'/'+totalReps+' reps at target (220)'},
-  ].map(function(k){return '<div class="kc '+k.c+'"><div class="kc-lbl">'+k.l+'</div><div class="kc-val '+k.vc+'">'+k.v+'</div><div class="kc-sub">'+k.s+'</div></div>';}).join('');
+
+  // Build revenue target for this selection (sum rep targets × blended price)
+  const selectionTargetCases = asms.reduce(function(s,a){
+    return s + a.repList.reduce(function(rs,r){return rs+(r.targetCases||0);},0);
+  },0);
+  const selectionTargetRev = selectionTargetCases>0 && T.blendedPrice
+    ? Math.round(selectionTargetCases * T.blendedPrice) : 0;
+  const selectionTargetCasesTotal = selectionTargetCases;
+
+  document.getElementById('asm-kpis').innerHTML=
+    tgtCard(activeASM?'Team Revenue':'Total Team Revenue', totalRev, selectionTargetRev, {valCls:'c-g', sub:activeASM?topASM.region:(asmRgnFilter||'All regions')})
+   +tgtCard('Total Cases', asms.reduce(function(s,a){return s+a.cases;},0), selectionTargetCasesTotal, {valCls:'', sub:'Units sold', isCases:true})
+   +(activeASM
+      ? `<div class="kc b"><div class="kc-lbl">Reps in Team</div><div class="kc-val">${totalReps}</div><div class="kc-sub">${activeASM}</div></div>`
+      : `<div class="kc a"><div class="kc-lbl">Top ASM</div><div class="kc-val c-a">${topASM.name}</div><div class="kc-sub">${fm(topASM.revenue)} · ${topASM.region}</div></div>`)
+   +`<div class="kc"><div class="kc-lbl">Avg Rev / Rep</div><div class="kc-val c-g">${fm(Math.round(totalRev/Math.max(totalReps,1)))}</div><div class="kc-sub">Across this selection</div></div>`
+   +`<div class="kc"><div class="kc-lbl">Avg Compliance</div><div class="kc-val ${avgComp>=100?'c-g':avgComp>=75?'c-a':'c-r'}">${avgComp.toFixed(1)}%</div><div class="kc-sub">${asms.reduce(function(s,a){return s+a.compliant;},0)}/${totalReps} reps at target (220)</div></div>`;
 
   // ASM ranking table
   document.getElementById('asm-tbl-cnt').textContent = asms.length+' ASMs';
