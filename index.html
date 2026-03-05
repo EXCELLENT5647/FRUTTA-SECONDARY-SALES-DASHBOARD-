@@ -1079,7 +1079,7 @@ function parseWB(wb){
   /* ── Helpers ── */
   function ensureRep(code, rgn, name, asm){
     if(!reps[code]){
-      reps[code]={name:name||'',region:rgn||'',asm:asm||'',revenue:0,cases:0,custsSold:new Set(),outlets:new Set(),isManager:isManagerCode(code)};
+      reps[code]={code:code, name:name||'',region:rgn||'',asm:asm||'',revenue:0,cases:0,custsSold:new Set(),outlets:new Set(),isManager:isManagerCode(code)};
     } else {
       if(!reps[code].name   && name) reps[code].name   = name;
       if(!reps[code].region && rgn)  reps[code].region = rgn;
@@ -1555,59 +1555,54 @@ function parseWB(wb){
     if(reg[r].metCount < reg[r].soldCount) reg[r].metCount = reg[r].soldCount;
     reg[r].conv = reg[r].metCount>0 ? Math.min(reg[r].soldCount/reg[r].metCount*100, 100) : 0;
   }
-  /* ── Derive month stats from actual data dates (Mon-Sat working days) ── */
-  const allDataDates = Object.keys(dailyAll).sort();
-
-  // Most common month in data
-  const monthCount = {};
-  allDataDates.forEach(function(d){
-    const ym = d.slice(0,7); // "2025-02"
-    monthCount[ym] = (monthCount[ym]||0) + 1;
-  });
-  const dominantYM = Object.entries(monthCount).sort((a,b)=>b[1]-a[1])[0]?.[0] || (allDataDates[0]||'').slice(0,7);
-
-  // Calendar days in the dominant month
+  /* ── Read Time gone sheet FIRST (authoritative source) ── */
+  const wsTG = wb.Sheets['Time gone'];
   let daysInMonth = 28;
   let workDaysInMonth = 0;
   let workDaysGone = 0;
   let workDaysLeft = 0;
-  if(dominantYM){
-    const [yr,mo] = dominantYM.split('-').map(Number);
-    daysInMonth = new Date(yr, mo, 0).getDate(); // total calendar days
-    // Count Mon-Sat days in the month (working days)
-    for(let day=1; day<=daysInMonth; day++){
-      const dow = new Date(yr, mo-1, day).getDay(); // 0=Sun
-      if(dow !== 0) workDaysInMonth++; // Mon-Sat
-    }
-    // Days gone = latest date in dominant month's data
-    const dominantDates = allDataDates.filter(d=>d.startsWith(dominantYM));
-    if(dominantDates.length){
-      const latestDate = new Date(dominantDates[dominantDates.length-1]);
-      const latestDay  = latestDate.getDate();
-      // Count Mon-Sat days from day 1 up to latestDay
-      for(let day=1; day<=latestDay; day++){
-        const dow = new Date(yr, mo-1, day).getDay();
-        if(dow !== 0) workDaysGone++;
-      }
-      workDaysLeft = Math.max(0, workDaysInMonth - workDaysGone);
-    }
-  }
 
-  // Also try Time gone sheet as fallback if data dates are missing
-  const wsTG = wb.Sheets['Time gone'];
-  if(wsTG && workDaysGone===0){
+  if(wsTG){
     const tgRows = XLSX.utils.sheet_to_json(wsTG,{header:1,defval:null});
     tgRows.forEach(function(r){
       if(!r) return;
-      const label = String(r[6]||'').toLowerCase();
+      const label = String(r[6]||'').toLowerCase().trim();
       const val   = parseFloat(r[5]);
       if(!isNaN(val)){
-        if(label.includes('days in the month')) daysInMonth    = val;
-        if(label.includes('working days'))      workDaysInMonth= val;
-        if(label.includes('days gone'))         workDaysGone   = val;
-        if(label.includes('balance'))           workDaysLeft   = Math.max(0,val);
+        if(label.includes('days in the month')) daysInMonth     = val;
+        if(label==='working days')              workDaysInMonth = val;
+        if(label.includes('days gone'))         workDaysGone    = val;
+        if(label==='balance')                   workDaysLeft    = Math.max(0, val);
       }
     });
+    console.log('[Frutta time-gone] Sheet values → daysInMonth:'+daysInMonth+' workDaysInMonth:'+workDaysInMonth+' workDaysGone:'+workDaysGone+' workDaysLeft:'+workDaysLeft);
+  }
+
+  /* ── Fall back to calculating from data dates if sheet had no values ── */
+  const allDataDates = Object.keys(dailyAll).sort();
+  const monthCount = {};
+  allDataDates.forEach(function(d){
+    const ym = d.slice(0,7);
+    monthCount[ym] = (monthCount[ym]||0) + 1;
+  });
+  const dominantYM = Object.entries(monthCount).sort((a,b)=>b[1]-a[1])[0]?.[0] || (allDataDates[0]||'').slice(0,7);
+
+  if(dominantYM && workDaysInMonth===0){
+    // Sheet had no data — calculate from calendar
+    const [yr,mo] = dominantYM.split('-').map(Number);
+    daysInMonth = new Date(yr, mo, 0).getDate();
+    for(let day=1; day<=daysInMonth; day++){
+      if(new Date(yr, mo-1, day).getDay() !== 0) workDaysInMonth++;
+    }
+    const dominantDates = allDataDates.filter(d=>d.startsWith(dominantYM));
+    if(dominantDates.length){
+      const latestDay = new Date(dominantDates[dominantDates.length-1]).getDate();
+      for(let day=1; day<=latestDay; day++){
+        if(new Date(yr, mo-1, day).getDay() !== 0) workDaysGone++;
+      }
+      workDaysLeft = Math.max(0, workDaysInMonth - workDaysGone);
+    }
+    console.log('[Frutta time-gone] Calculated from data → daysInMonth:'+daysInMonth+' workDaysInMonth:'+workDaysInMonth+' workDaysGone:'+workDaysGone);
   }
 
   /* ── Rep finalisation & compliance ── */
@@ -1690,11 +1685,21 @@ function parseWB(wb){
     console.log('[Frutta targets]', region, '| total target cases:', regionTotal);
   }
 
-  // Attach target to each rep via loginToCode bridge
+  // Attach target to each rep — Login IDs in regional sheets are the same as sales codes
+  // Try loginToCode bridge first, fall back to using login directly as the code
   for(const [login, target] of Object.entries(repTargets)){
     const code = loginToCode[login] || login;
-    if(reps[code]) reps[code].targetCases = target;
+    if(reps[code]){
+      reps[code].targetCases = target;
+    } else if(reps[login]){
+      // Direct match — login IS the sales code
+      reps[login].targetCases = target;
+    }
   }
+  // Debug: count how many reps got a target
+  const repsWithTarget = Object.values(reps).filter(function(r){return r.targetCases>0;});
+  console.log('[Frutta targets] Reps with targetCases set:', repsWithTarget.length,
+    '| Sample:', repsWithTarget.slice(0,3).map(function(r){return r.code+'='+r.targetCases;}));
 
   // Calculate blended avg price per case from the 5 known brands only
   const KNOWN_BRANDS = ['Frutta 1ltr','Maccaw','PET 50CL','PET 35CL','California'];
@@ -1753,7 +1758,13 @@ function fRegion(rgn){
   };
 }
 function fOverall(){
-  if(!activeASM) return D.overall;
+  const T = D.targets || {};
+  if(!activeASM){
+    return Object.assign({}, D.overall, {
+      targetCases: T.totalTargetCases || 0,
+      targetRev:   T.totalTargetRev   || 0,
+    });
+  }
   // Include zero-revenue reps for att count (active = checked in, not just productive)
   const reps = fReps(null);
   const allRepsInASM = Object.values(D.reps).filter(function(r){
@@ -1761,20 +1772,23 @@ function fOverall(){
   });
   const metSet=new Set(), soldSet=new Set();
   reps.forEach(function(r){
-    // Use Sets if still available, otherwise fall back to counts
     if(r.outlets instanceof Set) r.outlets.forEach(function(c){metSet.add(c);});
     if(r.custsSold instanceof Set) r.custsSold.forEach(function(c){soldSet.add(c);});
   });
-  // If Sets are empty (already finalised to counts), sum the counts directly
   const met  = metSet.size>0  ? Math.max(metSet.size, soldSet.size)
                                : reps.reduce(function(s,r){return s+(r.outletCount||0);},0);
   const sold = soldSet.size>0 ? soldSet.size
                                : reps.reduce(function(s,r){return s+(r.soldCount||0);},0);
+  // Target = sum of this ASM's reps' individual targets × blended price
+  const asmTargetCases = allRepsInASM.reduce(function(s,r){return s+(r.targetCases||0);},0);
+  const asmTargetRev   = T.blendedPrice ? Math.round(asmTargetCases * T.blendedPrice) : 0;
   return{
-    revenue: reps.reduce(function(s,r){return s+r.revenue;},0),
-    cases  : reps.reduce(function(s,r){return s+r.cases;},0),
-    att    : allRepsInASM.length,  // all reps under this ASM, not just productive
+    revenue:     reps.reduce(function(s,r){return s+r.revenue;},0),
+    cases:       reps.reduce(function(s,r){return s+r.cases;},0),
+    att:         allRepsInASM.length,
     met, sold,
+    targetCases: asmTargetCases,
+    targetRev:   asmTargetRev,
   };
 }
 function asmBadge(el){
@@ -1960,25 +1974,41 @@ function renderOV(){
   const compliantTotal = allReps.filter(r=>(r.compliance||0)>=100).length;
 
   const T = D.targets || {};
-  const totalTargetRev   = T.totalTargetRev   || 0;
-  const totalTargetCases = T.totalTargetCases  || 0;
+  // Use targets from fOverall — already filtered by activeASM if set
+  const totalTargetRev   = o.targetRev   || 0;
+  const totalTargetCases = o.targetCases || 0;
+
+  // Productive reps: filter by ASM if active
+  const allActiveReps = activeASM
+    ? Object.values(D.reps).filter(r=>!r.isManager && r.asm===activeASM)
+    : Object.values(D.reps).filter(r=>!r.isManager);
+  const productiveReps = allActiveReps.filter(r=>r.revenue>0).length;
 
   document.getElementById('ov-kpis').innerHTML=
-    tgtCard('Total MTD Revenue', o.revenue, totalTargetRev, {valCls:'c-g', sub:'All Regions'})
+    tgtCard('Total MTD Revenue', o.revenue, totalTargetRev, {valCls:'c-g', sub: activeASM ? activeASM : 'All Regions'})
    +tgtCard('Total Cases Sold',  o.cases,   totalTargetCases, {valCls:'', sub:'Units', isCases:true})
    +`<div class="kc"><div class="kc-lbl">Active Reps</div><div class="kc-val">${o.att}</div><div class="kc-sub">Checked in (incl. zero-rev)</div></div>`
-   +`<div class="kc"><div class="kc-lbl">Productive Reps</div><div class="kc-val c-g">${Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length}</div><div class="kc-sub">Reps with revenue > ₦0</div></div>`
+   +`<div class="kc"><div class="kc-lbl">Productive Reps</div><div class="kc-val c-g">${productiveReps}</div><div class="kc-sub">Reps with revenue > ₦0</div></div>`
    +`<div class="kc"><div class="kc-lbl">Outlets Visited</div><div class="kc-val">${fn(o.met)}</div><div class="kc-sub">Unique MTD</div></div>`
    +`<div class="kc a"><div class="kc-lbl">Customers Sold To</div><div class="kc-val c-a">${fn(o.sold)}</div><div class="kc-sub">Unique MTD</div></div>`
    +`<div class="kc p"><div class="kc-lbl">Drop Size</div><div class="kc-val c-p">${o.sold>0?(o.cases/o.sold).toFixed(1):'-'} cs</div><div class="kc-sub">Avg cases per customer</div></div>`
    +`<div class="kc"><div class="kc-lbl">Overall Conv.</div><div class="kc-val">${fp(o.met>0?o.sold/o.met*100:0)}</div><div class="kc-sub">Sold ÷ Visited</div></div>`
    +`<div class="kc"><div class="kc-lbl">Avg Compliance</div><div class="kc-val ${overallCompliance>=100?'c-g':overallCompliance>=75?'c-a':''}">${fp(overallCompliance)}</div><div class="kc-sub">${compliantTotal}/${allReps.length} reps at target (220)</div></div>`;
-  // Region achievement cards
+
+  // Region achievement cards — when ASM is active show only their region, else all regions
   const rgnAchEl = document.getElementById('ov-rgn-ach');
-  const rgnCards = REGIONS.map(function(r){
+  const regionsToShow = activeASM
+    ? [...new Set(Object.values(D.reps).filter(r=>r.asm===activeASM).map(r=>r.region))]
+    : REGIONS;
+  const rgnCards = regionsToShow.map(function(r){
     const rd  = fRegion(r);
-    const rgt = (T.regRevTargets && T.regRevTargets[r]) || 0;
-    const rct = (T.regTargets    && T.regTargets[r])    || 0;
+    // When ASM active, use only that ASM's reps' targets in this region
+    const rgt = activeASM
+      ? Math.round(Object.values(D.reps).filter(function(rep){return !rep.isManager && rep.asm===activeASM && rep.region===r;}).reduce(function(s,rep){return s+(rep.targetCases||0);},0) * (T.blendedPrice||0))
+      : (T.regRevTargets && T.regRevTargets[r]) || 0;
+    const rct = activeASM
+      ? Object.values(D.reps).filter(function(rep){return !rep.isManager && rep.asm===activeASM && rep.region===r;}).reduce(function(s,rep){return s+(rep.targetCases||0);},0)
+      : (T.regTargets && T.regTargets[r]) || 0;
     if(!rgt) return '';
     const pct  = Math.min(rd.revenue/rgt*100, 999);
     const col  = pct>=100?'var(--grn)':pct>=75?'var(--amb)':'var(--red)';
@@ -2034,13 +2064,22 @@ function renderOV(){
   }).join('');
 
   /* ── TOP 3 / BOTTOM 3 REPS ── */
-  const allRepsSorted = fReps(null); // sorted by revenue desc
+  const allRepsSorted = fReps(null); // all reps under current filter, sorted revenue desc
   const repsWith = allRepsSorted.filter(r=>r.revenue>0);
-  if(repsWith.length>=2){
+
+  // Bottom pool: when ASM active include zero-rev reps, sorted revenue ASC (zeros last)
+  const bot3Pool = activeASM
+    ? allRepsSorted.slice().sort(function(a,b){ return a.revenue - b.revenue; })
+    : repsWith.slice().sort(function(a,b){ return a.revenue - b.revenue; });
+
+  const showPanel = activeASM ? allRepsSorted.length >= 2 : repsWith.length >= 2;
+
+  if(showPanel){
     document.getElementById('ov-perf').style.display='';
     const medals=['🥇','🥈','🥉'];
     const top3 = repsWith.slice(0,3);
-    const bot3 = repsWith.slice(-3).reverse(); // worst first
+    const bot3 = bot3Pool.slice(0,3); // lowest revenue first (zeros included when ASM active)
+
     document.getElementById('ov-top3').innerHTML = top3.map((r,i)=>`
       <div class="perf-row">
         <div class="perf-rank" style="color:var(--grn)">${medals[i]||('#'+(i+1))}</div>
@@ -2053,7 +2092,8 @@ function renderOV(){
           <div class="perf-cases">${fn(r.cases)} cases · ${fn(r.soldCount)} cust.</div>
         </div>
       </div>`).join('');
-    document.getElementById('ov-bot3').innerHTML = bot3.map((r,i)=>`
+
+    document.getElementById('ov-bot3').innerHTML = bot3.map((r)=>`
       <div class="perf-row">
         <div class="perf-rank" style="color:var(--red)">⚠</div>
         <div class="perf-info">
@@ -2061,7 +2101,11 @@ function renderOV(){
           <div class="perf-meta">${r.code} · ${r.region}${r.asm?' · '+r.asm:''}</div>
         </div>
         <div style="text-align:right">
-          <div class="perf-rev" style="color:var(--red)">${fm(r.revenue)}</div>
+          <div class="perf-rev" style="color:var(--red)">
+            ${r.revenue===0
+              ? '<span style="font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--red)">NO SALES</span>'
+              : fm(r.revenue)}
+          </div>
           <div class="perf-cases">${fn(r.cases)} cases · ${fn(r.soldCount)} cust.</div>
         </div>
       </div>`).join('');
@@ -2191,8 +2235,8 @@ function renderGMD(){
   const projected=Math.round(dailyRun*daysInMth);
   const overallDropSize=o.sold>0?(o.cases/o.sold).toFixed(1)+' cs':'—';
   const TG = D.targets || {};
-  const gmdTargetRev   = TG.totalTargetRev   || 0;
-  const gmdTargetCases = TG.totalTargetCases  || 0;
+  const gmdTargetRev   = o.targetRev   || 0;
+  const gmdTargetCases = o.targetCases || 0;
   document.getElementById('gmd-kpis').innerHTML=
     tgtCard('MTD Total Revenue',   o.revenue,        gmdTargetRev,   {valCls:'c-a', cls:'a', sub:'All regions combined'})
    +tgtCard('Projected Month-End', projected,        gmdTargetRev,   {valCls:'c-g', sub:'Run rate × '+daysInMth+' days'})
@@ -2583,9 +2627,16 @@ function renderRgn(regName){
   const medals = ['🥇','🥈','🥉'];
   const withRev = reps.filter(function(r){return r.revenue>0;});
   const top3 = withRev.slice(0,3);
-  const bot3 = withRev.length>3 ? withRev.slice(-3).reverse() : withRev.slice().reverse().filter(function(_,i){return i<3 && withRev.length>1;});
+
+  // When ASM active: include zero-revenue reps in bottom pool
+  const botPool = activeASM ? reps.slice() : withRev.slice();
+  botPool.sort(function(a,b){ return a.revenue - b.revenue; }); // lowest first, zeros bubble up
+  const bot3 = botPool.slice(0,3).filter(function(_,i){ return botPool.length>1 || i===0; });
 
   function perfRow(r, label, labelColor){
+    const revDisplay = r.revenue===0
+      ? '<span style="font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--red)">NO SALES</span>'
+      : fm(r.revenue);
     return '<div class="perf-row">'
       +'<div class="perf-rank" style="color:'+labelColor+'">'+label+'</div>'
       +'<div class="perf-info">'
@@ -2593,18 +2644,19 @@ function renderRgn(regName){
       +'<div class="perf-meta">'+(r.asm||r.code)+'</div>'
       +'</div>'
       +'<div style="text-align:right">'
-      +'<div class="perf-rev" style="color:'+labelColor+'">'+fm(r.revenue)+'</div>'
+      +'<div class="perf-rev" style="color:'+labelColor+'">'+revDisplay+'</div>'
       +'<div class="perf-cases">'+fn(r.cases)+' cases · '+fn(r.soldCount)+' cust.</div>'
       +'</div>'
       +'</div>';
   }
 
   let perfHtml = '';
-  if(top3.length){
+  if(top3.length || (activeASM && reps.length>=2)){
     perfHtml = '<div class="perf-grid" style="margin-bottom:22px">'
       +'<div class="perf-panel">'
       +'<div class="perf-panel-hd" style="color:var(--grn)">&#127942; Top 3 — '+regName+'</div>'
-      +top3.map(function(r,i){return perfRow(r, medals[i], 'var(--grn)');}).join('')
+      +(top3.length ? top3.map(function(r,i){return perfRow(r, medals[i], 'var(--grn)');}).join('')
+        : '<div style="padding:16px;font-family:var(--fm);font-size:11px;color:var(--dim)">No revenue recorded yet</div>')
       +'</div>'
       +'<div class="perf-panel" style="border-color:rgba(255,71,87,.35)">'
       +'<div class="perf-panel-hd" style="color:var(--red)">&#9888; Bottom 3 — '+regName+'</div>'
@@ -2759,23 +2811,34 @@ function renderIntel(){
   const daysTotal = I.workDaysInMonth||23;
   const daysInMth = I.daysInMonth||28;
 
-  // Days Gone / Days in Month — derived from actual data dates, not today's clock
   const allDataDates   = Object.keys(D.dailyAll).sort();
   const dominantYM     = I.dominantYM || (allDataDates[0]||'').slice(0,7);
-  const dominantDates  = allDataDates.filter(function(d){return d.startsWith(dominantYM);});
-  const latestDataDate = dominantDates.length ? new Date(dominantDates[dominantDates.length-1]) : new Date();
-  const calDayGone     = latestDataDate.getDate();   // latest day with data in the month
-  const calDaysInMth   = daysInMth;                  // total calendar days in data month
+  const calDaysInMth   = daysInMth;
+
+  // Days Gone — use TODAY vs total calendar days in the data month
+  // If viewing a past month, treat all days as gone
+  const today = new Date();
+  const dataMonthYear  = dominantYM ? parseInt(dominantYM.slice(0,4)) : today.getFullYear();
+  const dataMonthNum   = dominantYM ? parseInt(dominantYM.slice(5,7)) : today.getMonth()+1;
+  const isCurrentMonth = today.getFullYear()===dataMonthYear && (today.getMonth()+1)===dataMonthNum;
+  const calDayGone     = isCurrentMonth ? today.getDate() : calDaysInMth;
+  const pctGone        = Math.min(calDayGone/calDaysInMth*100, 100);
 
   const wDaysElapsed = Math.min(daysGone, daysTotal);
   const wDaysLeft    = Math.max(0, daysLeft);
-  const dailyRun  = tv / Math.max(wDaysElapsed, 1);
-  const projected = dailyRun * daysInMth;
-  const pctGone   = Math.min(calDayGone/calDaysInMth*100, 100);
-  const projLabel = wDaysLeft===0 ? 'Month complete — final figure' : 'Run Rate × '+daysInMth+' calendar days';
+  const dailyRun     = tv / Math.max(wDaysElapsed, 1);
+  const projected    = dailyRun * daysInMth;
+  const projLabel    = wDaysLeft===0 ? 'Month complete — final figure' : 'Run Rate × '+daysInMth+' calendar days';
 
   const TI = D.targets || {};
-  const intelTargetRev = TI.totalTargetRev || 0;
+  // If ASM is active, show that ASM's target; otherwise full month target
+  const intelTargetRev = activeASM
+    ? (function(){
+        const asmReps = Object.values(D.reps).filter(function(r){return !r.isManager && r.asm===activeASM;});
+        const cases = asmReps.reduce(function(s,r){return s+(r.targetCases||0);},0);
+        return TI.blendedPrice ? Math.round(cases * TI.blendedPrice) : 0;
+      })()
+    : (TI.totalTargetRev || 0);
 
   document.getElementById('intel-runrate').innerHTML=
     `<div class="kc a"><div class="kc-lbl">Days Gone / Days in Month</div><div class="kc-val c-a">${calDayGone} / ${calDaysInMth}</div><div class="kc-sub">${pctGone.toFixed(0)}% elapsed · ${daysGone} of ${daysTotal} working days (Mon-Sat)</div></div>`
