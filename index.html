@@ -119,15 +119,26 @@ header{
 .fbar.on{display:flex;}
 .fbar-lbl{font-family:var(--fm);font-size:9px;letter-spacing:2px;color:var(--dim);white-space:nowrap;text-transform:uppercase;}
 .asm-select-wrap{position:relative;display:flex;align-items:center;}
-.asm-select-wrap::after{content:'▾';position:absolute;right:13px;color:var(--grn);font-size:12px;pointer-events:none;}
-#asm-select{
-  appearance:none;-webkit-appearance:none;
+#asm-search-input{
   background:var(--s2);border:1px solid var(--bdr);border-radius:9px;
   padding:7px 36px 7px 14px;font-family:var(--fm);font-size:11px;color:var(--txt);
-  cursor:pointer;min-width:210px;outline:none;font-weight:700;}
-#asm-select:hover,#asm-select:focus{border-color:var(--grn2);box-shadow:0 0 0 3px rgba(0,229,160,.08);}
-#asm-select option{background:var(--s1);color:var(--txt);}
-#asm-select.active{border-color:var(--grn);background:var(--grnd);color:var(--grn);box-shadow:0 0 12px rgba(0,229,160,.15);}
+  cursor:text;min-width:210px;outline:none;font-weight:700;width:210px;}
+#asm-search-input::placeholder{color:var(--dim);font-weight:400;}
+#asm-search-input:hover,#asm-search-input:focus{border-color:var(--grn2);box-shadow:0 0 0 3px rgba(0,229,160,.08);}
+#asm-search-input.active{border-color:var(--grn);background:var(--grnd);color:var(--grn);box-shadow:0 0 12px rgba(0,229,160,.15);}
+.asm-search-icon{position:absolute;right:13px;color:var(--grn);font-size:12px;pointer-events:none;}
+#asm-dropdown{
+  display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:9999;
+  background:var(--s1);border:1px solid var(--bdr);border-radius:10px;
+  min-width:260px;max-height:280px;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.35);
+  padding:4px 0;}
+#asm-dropdown.open{display:block;}
+.asm-opt{
+  padding:9px 16px;font-family:var(--fm);font-size:11px;color:var(--txt);
+  cursor:pointer;letter-spacing:.5px;transition:background .12s;}
+.asm-opt:hover,.asm-opt.focused{background:var(--grnd);color:var(--grn);}
+.asm-opt.selected{color:var(--grn);font-weight:700;}
+.asm-opt-none{padding:9px 16px;font-family:var(--fm);font-size:10px;color:var(--dim);letter-spacing:1px;}
 .asm-count{font-family:var(--fm);font-size:9px;color:var(--dim);white-space:nowrap;font-weight:700;}
 #fclear{
   padding:5px 13px;border-radius:7px;border:1px solid rgba(255,71,87,.5);
@@ -374,8 +385,6 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
     </span>
     <button class="mode-btn" id="theme-btn" onclick="toggleTheme()">☀️ LIGHT</button>
     <button class="mode-btn" id="asm-hdr-btn" style="display:none;border-color:rgba(0,229,160,.35);color:var(--grn)" onclick="toggleASMBar()">👤 ASM FILTER</button>
-    <!-- admin-only controls, hidden for viewers -->
-    <button class="upload-btn" id="upload-btn" onclick="document.getElementById('hfi').click()">⬆ Upload Report</button>
     <input type="file" id="hfi" accept=".xlsx,.xls" style="display:none" onchange="handleFile(this.files[0])">
   </div>
 </header>
@@ -390,10 +399,13 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
 <!-- ASM DROPDOWN BAR -->
 <div class="fbar" id="fbar">
   <span class="fbar-lbl">FILTER BY ASM ▸</span>
-  <div class="asm-select-wrap">
-    <select id="asm-select" onchange="pickASMDrop(this.value)">
-      <option value="">— All ASMs —</option>
-    </select>
+  <div class="asm-select-wrap" id="asm-wrap">
+    <input id="asm-search-input" type="text" placeholder="🔍 Search ASM name…" autocomplete="off"
+      oninput="asmSearchInput(this.value)"
+      onfocus="asmDropOpen()"
+      onkeydown="asmSearchKey(event)" />
+    <span class="asm-search-icon">▾</span>
+    <div id="asm-dropdown"></div>
   </div>
   <span class="asm-count" id="asm-count"></span>
   <button id="fclear" onclick="clearASM()">✕ Clear</button>
@@ -406,6 +418,7 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
   <button class="ntab" onclick="sw('lagos',this)"><span class="dot"></span>Lagos</button>
   <button class="ntab" onclick="sw('east',this)"><span class="dot"></span>East</button>
   <button class="ntab" onclick="sw('west',this)"><span class="dot"></span>West</button>
+  <button class="ntab" onclick="sw('south',this)"><span class="dot"></span>South</button>
   <button class="ntab" onclick="sw('ka',this)"><span class="dot"></span>Key Account</button>
   <button class="ntab" onclick="sw('asm',this)"><span class="dot"></span>ASM Scorecard</button>
   <button class="ntab" onclick="sw('intel',this)"><span class="dot"></span>Intelligence</button>
@@ -533,6 +546,7 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
 <div id="view-lagos" class="view"><div id="rg-lagos"></div></div>
 <div id="view-east"  class="view"><div id="rg-east"></div></div>
 <div id="view-west"  class="view"><div id="rg-west"></div></div>
+<div id="view-south" class="view"><div id="rg-south"></div></div>
 <div id="view-ka"    class="view"><div id="rg-ka"></div></div>
 
 <!-- INTELLIGENCE VIEW -->
@@ -637,7 +651,7 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
       <span class="pill">Sales data</span>
       <span class="pill">OUTLET VISIT REPORT</span>
       <span class="pill">Attendance data</span>
-      <span class="pill">North / Lagos / East / West / KA Atte</span>
+      <span class="pill">North / Lagos / SE / West / SS / KA Atte</span>
     </div>
   </div>
 </div>
@@ -740,11 +754,11 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
 <script>
 'use strict';
 /* ═══════════════════════════ CONSTANTS ══════════════════════ */
-const REGIONS = ['NORTH','LAGOS','EAST','WEST','Key Acct'];
-const RC = {NORTH:'#00e5a0',LAGOS:'#3d9eff',EAST:'#a259ff',WEST:'#f5a623','Key Acct':'#ff4757'};
-const RK = {NORTH:'north',LAGOS:'lagos',EAST:'east',WEST:'west','Key Acct':'ka'};
+const REGIONS = ['NORTH','LAGOS','EAST','WEST','SOUTH','Key Acct'];
+const RC = {NORTH:'#00e5a0',LAGOS:'#3d9eff',EAST:'#a259ff',WEST:'#f5a623',SOUTH:'#ff6b9d','Key Acct':'#ff4757'};
+const RK = {NORTH:'north',LAGOS:'lagos',EAST:'east',WEST:'west',SOUTH:'south','Key Acct':'ka'};
 const COMPLIANCE_TARGET = 220; // expected outlets per rep per month
-const ATTE = ['North Atte','Lagos Atte','East Atte','West Atte'];
+const ATTE = ['North Atte','Lagos Atte','SE Atte','East Atte','West Atte','SS Atte','South Atte']; // all possible names — missing ones skipped at runtime
 
 let D=null, CH={}, viewerMode=false, activeASM=null;
 let MONTHS={}, activeMonth=null; // multi-month store
@@ -759,26 +773,23 @@ document.getElementById('date-lbl').textContent =
      Full set: KATEE1233 KATEE1239 KATLE1229 KATEE1232 KATEE1231
                KATEE1234 KATWE1240 KATWE1241 KATEE1238 KATEE1230
    Regional short codes: NOR*, LAG*, EST*, WST*
-   Full login IDs in Atte sheets: NORSR*, LAGSR*, ESTSR*, WSTSR*, KASR*
+   Full login IDs in Atte sheets: NORSR*, LAGSR*, ESTSR*, WSTSR*, SSTSR*, KASR*
    ═══════════════════════════════════════════════════════════════ */
 function rgnFromCode(val) {
   if (!val) return null;
   const v = String(val).toUpperCase().trim();
-  // KAT* codes = Key Account rep codes (KATEE*, KATLE*, KATWE* etc.)
   if (v.startsWith('KAT'))   return 'Key Acct';
-  // KASR* = KA Atte login IDs
   if (v.startsWith('KASR'))  return 'Key Acct';
-  // Full login IDs from Atte sheets (check BEFORE short prefixes to avoid false matches)
+  if (v.startsWith('SSTSR')) return 'SOUTH';
   if (v.startsWith('NORSR')) return 'NORTH';
   if (v.startsWith('LAGSR')) return 'LAGOS';
   if (v.startsWith('ESTSR')) return 'EAST';
   if (v.startsWith('WSTSR')) return 'WEST';
-  // Short regional codes from Sales data / Outlet Visit Report
+  if (v.startsWith('SST'))   return 'SOUTH';
   if (v.startsWith('NOR'))   return 'NORTH';
   if (v.startsWith('LAG'))   return 'LAGOS';
   if (v.startsWith('EST'))   return 'EAST';
   if (v.startsWith('WST'))   return 'WEST';
-  // Generic KA fallback (KA Atte login IDs that don't match KASR pattern)
   if (v.startsWith('KA'))    return 'Key Acct';
   return null;
 }
@@ -811,6 +822,7 @@ function normRgn(raw){
   if(r.startsWith('LAGOS')||r.startsWith('LAG')) return 'LAGOS';
   if(r.startsWith('EAST') ||r.startsWith('EST')) return 'EAST';
   if(r.startsWith('WEST') ||r.startsWith('WST')) return 'WEST';
+  if(r.startsWith('SOUTH')||r.startsWith('SST')) return 'SOUTH';
   return r;
 }
 
@@ -893,43 +905,106 @@ function updateNavPos(){
   else if(asmOn)        { nav.classList.add('shifted'); }
 }
 
-/* ═══════════════════════════ ASM DROPDOWN ════════════════════ */
+/* ═══════════════════════════ ASM SEARCH COMBO ════════════════════ */
+let _asmList = [];   // full sorted list of ASM names
+let _asmFocus = -1;  // keyboard focus index in dropdown
+
 function buildASMBar(){
-  const asms=[...new Set(
+  _asmList = [...new Set(
     Object.values(D.reps)
       .map(r=>r.asm)
       .filter(a=>a && a.trim() && !a.startsWith('=') && a.toLowerCase()!=='asm' && a.length>1)
   )].sort();
 
-  const sel = document.getElementById('asm-select');
-  sel.innerHTML = '<option value="">— All ASMs —</option>';
-  asms.forEach(a=>{
-    const opt=document.createElement('option');
-    opt.value=a; opt.textContent=a;
-    sel.appendChild(opt);
-  });
+  if(!_asmList.length){ toast('⚠ No ASM names found — check your Atte sheets have ASM in column C'); return; }
 
-  if(!asms.length){ toast('⚠ No ASM names found — check your Atte sheets have ASM in column C'); return; }
-
-  document.getElementById('asm-count').textContent=asms.length+' ASMs';
+  document.getElementById('asm-count').textContent = _asmList.length+' ASMs';
   document.getElementById('fbar').classList.add('on');
   document.getElementById('asm-hdr-btn').style.display='';
+  _renderAsmDropdown('');
   updateNavPos();
 }
 
+function _renderAsmDropdown(query){
+  const dd = document.getElementById('asm-dropdown');
+  const q = query.trim().toLowerCase();
+  const filtered = q ? _asmList.filter(a=>a.toLowerCase().includes(q)) : _asmList;
+  _asmFocus = -1;
+  if(!filtered.length){
+    dd.innerHTML = '<div class="asm-opt-none">No match found</div>';
+  } else {
+    dd.innerHTML = (q ? '' : '<div class="asm-opt" data-val="" onclick="pickASMDrop(\'\')">— All ASMs —</div>')
+      + filtered.map(a=>'<div class="asm-opt'+(a===activeASM?' selected':'')+'" data-val="'+a+'" onclick="pickASMDrop(\''+a.replace(/'/g,"\\'")+'\')">'
+        + (q ? a.replace(new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi'),'<mark style="background:rgba(0,229,160,.25);color:var(--grn);border-radius:2px">$1</mark>') : a)
+        +'</div>').join('');
+  }
+}
+
+function asmDropOpen(){
+  const inp = document.getElementById('asm-search-input');
+  const dd  = document.getElementById('asm-dropdown');
+  _renderAsmDropdown(inp.value);
+  dd.classList.add('open');
+  // Close if clicking outside
+  setTimeout(()=>{
+    document.addEventListener('mousedown', _asmOutsideClick, {once:false, capture:true});
+  }, 0);
+}
+
+let _asmOutsideClick = function(e){
+  const wrap = document.getElementById('asm-wrap');
+  if(!wrap.contains(e.target)){
+    document.getElementById('asm-dropdown').classList.remove('open');
+    document.removeEventListener('mousedown', _asmOutsideClick, true);
+  }
+};
+
+function asmSearchInput(val){
+  _renderAsmDropdown(val);
+  document.getElementById('asm-dropdown').classList.add('open');
+}
+
+function asmSearchKey(e){
+  const dd   = document.getElementById('asm-dropdown');
+  const opts = [...dd.querySelectorAll('.asm-opt')];
+  if(e.key==='ArrowDown'){
+    e.preventDefault();
+    _asmFocus = Math.min(_asmFocus+1, opts.length-1);
+    opts.forEach((o,i)=>o.classList.toggle('focused',i===_asmFocus));
+    if(opts[_asmFocus]) opts[_asmFocus].scrollIntoView({block:'nearest'});
+  } else if(e.key==='ArrowUp'){
+    e.preventDefault();
+    _asmFocus = Math.max(_asmFocus-1, 0);
+    opts.forEach((o,i)=>o.classList.toggle('focused',i===_asmFocus));
+    if(opts[_asmFocus]) opts[_asmFocus].scrollIntoView({block:'nearest'});
+  } else if(e.key==='Enter'){
+    e.preventDefault();
+    if(_asmFocus>=0 && opts[_asmFocus]){
+      pickASMDrop(opts[_asmFocus].dataset.val);
+    } else if(opts.length===1){
+      pickASMDrop(opts[0].dataset.val);
+    }
+  } else if(e.key==='Escape'){
+    dd.classList.remove('open');
+    document.getElementById('asm-search-input').blur();
+  }
+}
+
 function pickASMDrop(name){
+  document.getElementById('asm-dropdown').classList.remove('open');
+  document.removeEventListener('mousedown', _asmOutsideClick, true);
   if(!name){ clearASM(); return; }
-  activeASM=name;
-  document.getElementById('asm-select').classList.add('active');
+  activeASM = name;
+  const inp = document.getElementById('asm-search-input');
+  inp.value = name;
+  inp.classList.add('active');
   document.getElementById('fclear').style.display='';
+  _renderAsmDropdown('');
   if(D) renderAll();
   toast('Filtering: '+name);
 }
 
-function pickASM(name){ // keep alias
-  document.getElementById('asm-select').value=name;
-  pickASMDrop(name);
-}
+function pickASM(name){ pickASMDrop(name); } // alias
 
 function toggleASMBar(){
   const fbar=document.getElementById('fbar');
@@ -948,9 +1023,11 @@ function toggleASMBar(){
 
 function clearASM(){
   activeASM=null;
-  const sel=document.getElementById('asm-select');
-  sel.value=''; sel.classList.remove('active');
+  const inp = document.getElementById('asm-search-input');
+  inp.value=''; inp.classList.remove('active');
   document.getElementById('fclear').style.display='none';
+  document.getElementById('asm-dropdown').classList.remove('open');
+  _renderAsmDropdown('');
   if(D) renderAll();
   toast('Filter cleared — showing all');
 }
@@ -964,7 +1041,7 @@ dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');ha
 /* ═══════════════════════════ FILE HANDLER ════════════════════ */
 function handleFile(file){
   if(!file) return;
-  const btn=document.getElementById('upload-btn');
+  const btn=document.getElementById('upload-btn')||{textContent:'',disabled:false};
   btn.disabled=true; btn.textContent='⏳ Parsing…';
   toast('⏳ Reading '+file.name+'…');
   const rd=new FileReader();
@@ -1138,7 +1215,7 @@ function parseWB(wb){
 
   /* ═══════════════════════════════════════════════════════════════
      STEP 1: ALL ATTE SHEETS — build loginToASM, loginToName, att counts
-     Sheets: North Atte, Lagos Atte, East Atte, West Atte, KA Atte
+     Sheets: North Atte, Lagos Atte, SE Atte, West Atte, SS Atte, KA Atte
      
      CRITICAL: We scan ALL columns for login/code, name, ASM.
      We store EVERY identifier found (login OR code) so it can be
@@ -1153,21 +1230,23 @@ function parseWB(wb){
     const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
     if(!rows.length) continue;
 
-    // Find header row — first row where col[0] looks like a code/login
-    let dataStart = 0;
-    for(let i=0; i<Math.min(rows.length, 8); i++){
-      const v = rows[i] && rows[i][0] ? String(rows[i][0]).trim().toUpperCase() : '';
-      // Header rows say "LOGIN" or "CODE" etc; data rows have actual codes
-      if(v && v !== 'LOGIN' && v !== 'LOGIN II' && v !== 'CODE' && v !== 'SR CODE'
-         && !v.startsWith('=') && (rgnFromCode(v) || v.match(/^[A-Z]{2,6}\d{3,}/)))
-      { dataStart = i; break; }
+    // Find header row and login column — login may be in col 0 OR col 1 (col A is sometimes blank)
+    let dataStart = 0, loginColAtte = 0;
+    outer: for(let i=0; i<Math.min(rows.length, 8); i++){
+      const row = rows[i]; if(!row) continue;
+      for(let c=0; c<Math.min(row.length,4); c++){
+        const v = row[c] ? String(row[c]).trim().toUpperCase() : '';
+        if(v && v !== 'LOGIN' && v !== 'LOGIN ID' && v !== 'LOGIN II' && v !== 'CODE' && v !== 'SR CODE'
+           && !v.startsWith('=') && (rgnFromCode(v) || v.match(/^[A-Z]{2,6}\d{3,}/)))
+        { dataStart = i; loginColAtte = c; break outer; }
+      }
     }
 
-    // Detect columns: try to find Name and ASM cols from header row above dataStart
-    let colName = 1, colAsm = 2, colCode = -1;
+    // Detect columns: find Name and ASM from header row above dataStart
+    let colName = loginColAtte+1, colAsm = loginColAtte+2, colCode = -1;
     if(dataStart > 0){
       const hdr = rows[dataStart - 1] || [];
-      const ni = colIdx(hdr, 'name', 'rep name', 'staff');
+      const ni = colIdx(hdr, 'name', 'rep name', 'staff', 'sr name', 'se name');
       const ai = colIdx(hdr, 'asm', 'supervisor', 'manager');
       const ci = colIdx(hdr, 'code', 'sr code', 'login');
       if(ni >= 0) colName = ni;
@@ -1180,8 +1259,8 @@ function parseWB(wb){
 
     for(let i = dataStart; i < rows.length; i++){
       const row = rows[i];
-      if(!row || !row[0]) continue;
-      const id   = String(row[0]).trim();
+      if(!row || !row[loginColAtte]) continue;
+      const id   = String(row[loginColAtte]).trim();
       if(!id || id.startsWith('=') || id.toLowerCase().includes('login') || id.toLowerCase().includes('total')) continue;
 
       const name   = String(row[colName] || '').trim();
@@ -1299,7 +1378,7 @@ function parseWB(wb){
      STEP 3: OUTLET VISIT REPORT
      Auto-detect columns for: customer, rep code, login
   ═══════════════════════════════════════════════════════════════ */
-  const wsV = wb.Sheets['OUTLET VISIT REPORT '] || wb.Sheets['OUTLET VISIT REPORT'];
+  const wsV = wb.Sheets['OUTLET VISIT REPORT '] || wb.Sheets['OUTLET VISIT REPORT'] || wb.Sheets['OUTLET VISIT'] || wb.Sheets['Outlet Visit'] || (function(){ const s=Object.keys(wb.Sheets).find(function(k){return k.toUpperCase().includes('OUTLET')&&k.toUpperCase().includes('VISIT');}); return s?wb.Sheets[s]:null; })();
   if(wsV){
     const rows = XLSX.utils.sheet_to_json(wsV, {header:1, defval:null});
     if(rows.length > 0){
@@ -1374,6 +1453,19 @@ function parseWB(wb){
     const rowsNum = XLSX.utils.sheet_to_json(wsS, {header:1, defval:0,  raw:true });
 
     if(rowsStr.length > 1){
+      // Detect brand column dynamically from header or data scan
+      const HDR_ROW = rowsStr[0] || [];
+      const KNOWN_BRANDS_SET = new Set(['Frutta 1ltr','Maccaw','PET 50CL','PET 35CL','California']);
+      let brandCol = HDR_ROW.findIndex(function(v){ return String(v||'').toLowerCase().includes('brand'); });
+      if(brandCol < 0){
+        outer: for(let c=0; c<HDR_ROW.length; c++){
+          for(let i=1; i<=Math.min(20,rowsStr.length-1); i++){
+            if(KNOWN_BRANDS_SET.has(String((rowsStr[i]||[])[c]||'').trim())){ brandCol=c; break outer; }
+          }
+        }
+      }
+      if(brandCol < 0) brandCol = 17;
+      console.log('[Frutta] brandCol='+brandCol+' header='+HDR_ROW[brandCol]);
       // ── Find qty & amt columns: scan first 50 data rows.
       //    Collect columns where values are consistently positive numbers.
       //    The LAST two such columns (rightmost) = qty then amt.
@@ -1454,8 +1546,10 @@ function parseWB(wb){
         // Name: from fulname col[2] which is always the rep's full name
         const name = String(rowS[2]||'').trim();
 
-        // Customer = col[4] = cust_name (col[3] is cust_code numeric — skip it)
-        let cust = String(rowS[4]||'').trim();
+        // Customer sold: use cust_code (col 3) as unique ID — more reliable than name
+        // Outlet visited: use cust_name (col 4) for display consistency with outlet visit sheet
+        let custCode = String(rowS[3]||'').trim(); // cust_code — unique per customer
+        let cust = custCode || String(rowS[4]||'').trim();
         // Fallback scan if col[4] is empty
         if(!cust){
           for(let c=1; c<Math.min(rowS.length, amtCol); c++){
@@ -1480,7 +1574,7 @@ function parseWB(wb){
         // ── Accumulate ──
         reg[rgn].revenue += amt;
         reg[rgn].cases   += qty;
-        if(cust) reg[rgn].custsSold.add(cust);
+        if(custCode||cust) reg[rgn].custsSold.add(custCode||cust);
 
         if(!daily[rgn]) daily[rgn]={};
         daily[rgn][date] = (daily[rgn][date]||0) + amt;
@@ -1489,12 +1583,12 @@ function parseWB(wb){
         ensureRep(code, rgn, name, asm);
         reps[code].revenue += amt;
         reps[code].cases   += qty;
-        if(cust) reps[code].custsSold.add(cust);
+        if(custCode||cust) reps[code].custsSold.add(custCode||cust);
         // MTD attendance: made at least one sale = was active in the field
         reg[rgn].att.add(code);
 
         // ── Brand / Channel / SKU intelligence ──
-        const brand   = String(rowS[17]||'').trim() || 'Unknown';
+        const brand   = String(rowS[brandCol]||'').trim() || 'Unknown';
         const channel = String(rowS[9] ||'').trim() || 'Unknown';
         const skuDesc = String(rowS[11]||'').trim() || 'Unknown';
 
@@ -1646,10 +1740,22 @@ function parseWB(wb){
   console.log('[Frutta v6] Total reps in reps{}:', Object.keys(reps).length, '| Sample codes:', Object.keys(reps).slice(0,10));
 
   /* ── Parse targets from regional sales sheets ── */
-  const SALES_SHEETS = {
+  // Detect sales sheets dynamically — handles name changes across months
+  const ALL_POSSIBLE_SALES_SHEETS = {
     'West Sales':'WEST', 'Lagos Sales':'LAGOS',
-    'East Sales':'EAST', 'North Sales':'NORTH', 'KA Sales':'Key Acct'
+    'SE Sales':'EAST',   'East Sales':'EAST',
+    'SS Sales':'SOUTH',  'South Sales':'SOUTH',
+    'North Sales':'NORTH','KA Sales':'Key Acct'
   };
+  const SALES_SHEETS = {};
+  const seenRegions = new Set();
+  for(const [sh,rgn] of Object.entries(ALL_POSSIBLE_SALES_SHEETS)){
+    if(wb.Sheets[sh] && !seenRegions.has(rgn)){
+      SALES_SHEETS[sh] = rgn;
+      seenRegions.add(rgn);
+    }
+  }
+  console.log('[Frutta] Detected sales sheets:', Object.keys(SALES_SHEETS));
   const repTargets  = {};
   const regTargets  = {};
   console.log('[Frutta targets] Available sheets:', wb.SheetNames);
@@ -1681,25 +1787,34 @@ function parseWB(wb){
         regionTotal += target;
       }
     }
-    regTargets[region] = regionTotal;
+    if(regionTotal > 0) regTargets[region] = regionTotal;
     console.log('[Frutta targets]', region, '| total target cases:', regionTotal);
   }
 
-  // Attach target to each rep — Login IDs in regional sheets are the same as sales codes
-  // Try loginToCode bridge first, fall back to using login directly as the code
+  // Attach target to each rep
+  // reps{} is keyed by the Login Code (e.g. WSTSR1055) — try direct match first,
+  // then fall back to numeric sc via loginToCode bridge
   for(const [login, target] of Object.entries(repTargets)){
-    const code = loginToCode[login] || login;
-    if(reps[code]){
-      reps[code].targetCases = target;
-    } else if(reps[login]){
-      // Direct match — login IS the sales code
+    if(reps[login]){
+      // Direct hit — login IS the key in reps{}
       reps[login].targetCases = target;
+    } else {
+      const sc = loginToCode[login];
+      if(sc && reps[sc]){
+        reps[sc].targetCases = target;
+      } else {
+        // No match — create stub so region/ASM totals still work
+        const rgn = rgnFromCode(login);
+        if(rgn){
+          ensureRep(login, rgn, '', loginToASM[login] || '');
+          reps[login].targetCases = target;
+        }
+      }
     }
   }
-  // Debug: count how many reps got a target
   const repsWithTarget = Object.values(reps).filter(function(r){return r.targetCases>0;});
   console.log('[Frutta targets] Reps with targetCases set:', repsWithTarget.length,
-    '| Sample:', repsWithTarget.slice(0,3).map(function(r){return r.code+'='+r.targetCases;}));
+    '| Sample:', repsWithTarget.slice(0,5).map(function(r){return (r.code||'?')+'='+r.targetCases;}));
 
   // Calculate blended avg price per case from the 5 known brands only
   const KNOWN_BRANDS = ['Frutta 1ltr','Maccaw','PET 50CL','PET 35CL','California'];
@@ -2217,7 +2332,7 @@ function renderOV(){
 }
 
 /* ═══════════════════════════ GMD ════════════════════════════ */
-function renderGMD(){
+function renderGMD(){try{
   document.getElementById('gmd-empty').style.display='none';
   document.getElementById('gmd-body').style.display='';
   asmBadge(document.getElementById('gmd-asm'));
@@ -2235,6 +2350,8 @@ function renderGMD(){
   const projected=Math.round(dailyRun*daysInMth);
   const overallDropSize=o.sold>0?(o.cases/o.sold).toFixed(1)+' cs':'—';
   const TG = D.targets || {};
+  const T = TG; // alias used by RAG block
+  const wDaysInMonth = daysTotal;
   const gmdTargetRev   = o.targetRev   || 0;
   const gmdTargetCases = o.targetCases || 0;
   document.getElementById('gmd-kpis').innerHTML=
@@ -2324,32 +2441,51 @@ function renderGMD(){
     </div>`;
 
   /* ── REGION HEALTH RAG ── */
-  // Score each region across 4 dimensions: conv%, drop size, attendance, touchpoints (customers sold vs 220)
+  // 5 dimensions: pace vs target, conversion, drop size, attendance rate, touchpoints
+  // Pace = actual revenue vs where you SHOULD be given days elapsed (pace-adjusted target)
 
   const ragHtml = REGIONS.map(function(r){
     const rd=rdMap[r];
     const color=RC[r];
-    const convScore = rd.conv>=65?'grn':rd.conv>=40?'amb':'red';
+
+    // 1. PACE vs target (pace-adjusted: expected = fullTarget * daysGone/daysInMonth)
+    const regTgtCases = T.regTargets && T.regTargets[r] ? T.regTargets[r] : 0;
+    const regTgtRev   = regTgtCases * (T.blendedPrice||0);
+    const paceExpected = wDaysInMonth>0 ? regTgtRev * (wDaysElapsed/wDaysInMonth) : 0;
+    const pacePct = paceExpected>0 ? rd.revenue/paceExpected*100 : null;
+    const paceScore = pacePct===null?'amb':pacePct>=90?'grn':pacePct>=65?'amb':'red';
+    const paceLabel = pacePct===null?'No target':pacePct.toFixed(0)+'% of pace';
+
+    // 2. CONVERSION: customers sold / outlets visited
+    const convScore = rd.conv>=60?'grn':rd.conv>=35?'amb':'red';
+
+    // 3. DROP SIZE: cases per customer
     const dsRaw = rd.soldCount>0?rd.cases/rd.soldCount:0;
     const dsScore = dsRaw>=3?'grn':dsRaw>=1.5?'amb':'red';
-    const attScore = rd.attCount>=10?'grn':rd.attCount>=5?'amb':'red';
 
-    // Touchpoint score: outlets visited vs flat 220/rep target
-    const tpTarget   = 220 * rd.attCount;
-    const tpActual   = rd.metCount;
-    const tpPct      = tpTarget>0 ? tpActual/tpTarget*100 : 100;
-    const tpScore    = tpPct>=90?'grn':tpPct>=70?'amb':'red';
-    const tpFullMth  = 220 * rd.attCount; // full month target for display
+    // 4. ATTENDANCE RATE: active reps vs total reps in region (from atte sheets)
+    const totalRepsInRegion = Object.values(D.reps).filter(function(rep){return !rep.isManager && rep.region===r;}).length || rd.attCount;
+    const attRate = totalRepsInRegion>0 ? rd.attCount/totalRepsInRegion*100 : 100;
+    const attScore = attRate>=85?'grn':attRate>=65?'amb':'red';
+
+    // 5. TOUCHPOINTS: outlets visited vs 220 * days elapsed (pro-rated)
+    const tpTarget  = 220 * rd.attCount * (wDaysInMonth>0?wDaysElapsed/wDaysInMonth:1);
+    const tpActual  = rd.metCount;
+    const tpPct     = tpTarget>0 ? tpActual/tpTarget*100 : 100;
+    const tpScore   = tpPct>=85?'grn':tpPct>=60?'amb':'red';
 
     const scores={grn:0,amb:0,red:0};
-    [convScore,dsScore,attScore,tpScore].forEach(s=>scores[s]++);
-    const overall = scores.red>=2?'red':scores.amb>=2?'amb':'grn';
+    [paceScore,convScore,dsScore,attScore,tpScore].forEach(s=>scores[s]++);
+    // Red if 2+ red OR pace is red; amber if 2+ amber; else green
+    const overall = (scores.red>=2||paceScore==='red')?'red':scores.amb>=2?'amb':'grn';
     const overallColor = overall==='grn'?'var(--grn)':overall==='amb'?'var(--amb)':'var(--red)';
     const overallBg = overall==='grn'?'var(--grnd)':overall==='amb'?'var(--ambd)':'var(--redb)';
     const overallBdr = overall==='grn'?'rgba(0,229,160,.25)':overall==='amb'?'rgba(245,166,35,.25)':'rgba(255,71,87,.25)';
     const statusIcon = overall==='grn'?'🟢':overall==='amb'?'🟡':'🔴';
     const statusWord = overall==='grn'?'HEALTHY':overall==='amb'?'MONITOR':'AT RISK';
     function dot(s){const c=s==='grn'?'var(--grn)':s==='amb'?'var(--amb)':'var(--red)';return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};box-shadow:0 0 6px ${c}"></span>`;}
+    const paceBarW = pacePct!==null?Math.min(pacePct,100).toFixed(1):0;
+    const paceBarC = paceScore==='grn'?'var(--grn)':paceScore==='amb'?'var(--amb)':'var(--red)';
     return `<div style="background:var(--s1);border:1px solid ${overallBdr};border-radius:var(--r);overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,.2)">
       <div style="padding:14px 18px 10px;border-bottom:1px solid ${overallBdr};display:flex;align-items:center;gap:10px;background:${overallBg}">
         <span style="font-size:18px">${statusIcon}</span>
@@ -2357,9 +2493,19 @@ function renderGMD(){
           <div style="font-family:var(--fn);font-size:13px;font-weight:800;color:${color}">${r==='Key Acct'?'KEY ACCOUNT':r}</div>
           <div style="font-family:var(--fm);font-size:9px;font-weight:700;color:${overallColor};letter-spacing:1px;text-transform:uppercase;margin-top:2px">${statusWord}</div>
         </div>
-        <div style="margin-left:auto;font-family:var(--fn);font-size:18px;font-weight:800;color:var(--grn)">${fm(rd.revenue)}</div>
+        <div style="margin-left:auto;text-align:right">
+          <div style="font-family:var(--fn);font-size:18px;font-weight:800;color:var(--grn)">${fm(rd.revenue)}</div>
+          <div style="font-family:var(--fm);font-size:9px;color:var(--dim);font-weight:700">${pacePct!==null?'vs ₦'+fm(Math.round(paceExpected))+' expected':''}</div>
+        </div>
       </div>
       <div style="padding:12px 18px;display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:7px;border-bottom:1px solid rgba(255,255,255,.06)">
+          <span style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700">Pace vs Target <span style="font-weight:400;opacity:.6">(${wDaysElapsed}/${wDaysInMonth} days)</span></span>
+          <span style="display:flex;align-items:center;gap:6px;font-family:var(--fn);font-size:12px;font-weight:800">${dot(paceScore)} ${paceLabel}</span>
+        </div>
+        <div style="height:3px;background:var(--bdr);border-radius:3px;overflow:hidden;margin-top:-7px;margin-bottom:2px">
+          <div style="height:100%;width:${paceBarW}%;background:${paceBarC};border-radius:3px;transition:width .5s"></div>
+        </div>
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700">Conversion</span>
           <span style="display:flex;align-items:center;gap:6px;font-family:var(--fn);font-size:12px;font-weight:800">${dot(convScore)} ${fp(rd.conv)}</span>
@@ -2369,17 +2515,13 @@ function renderGMD(){
           <span style="display:flex;align-items:center;gap:6px;font-family:var(--fn);font-size:12px;font-weight:800">${dot(dsScore)} ${dsRaw>0?dsRaw.toFixed(1)+' cs':'—'}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700">Active Reps</span>
-          <span style="display:flex;align-items:center;gap:6px;font-family:var(--fn);font-size:12px;font-weight:800">${dot(attScore)} ${rd.attCount}</span>
+          <span style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700">Attendance Rate</span>
+          <span style="display:flex;align-items:center;gap:6px;font-family:var(--fn);font-size:12px;font-weight:800">${dot(attScore)} ${rd.attCount} of ${totalRepsInRegion} <span style="font-family:var(--fm);font-size:9px;color:var(--dim);font-weight:400">(${attRate.toFixed(0)}%)</span></span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;padding-top:7px;border-top:1px solid rgba(255,255,255,.06)">
-          <span style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700">Touchpoints <span style="font-weight:400;opacity:.6">(Outlets Visited vs 220/rep)</span></span>
-          <span style="display:flex;align-items:center;gap:6px;font-family:var(--fn);font-size:12px;font-weight:800">${dot(tpScore)} ${fn(tpActual)} <span style="font-family:var(--fm);font-size:9px;color:var(--dim);font-weight:400">/ ${fn(tpTarget)} exp.</span></span>
+          <span style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700">Touchpoints <span style="font-weight:400;opacity:.6">(pro-rated pace)</span></span>
+          <span style="display:flex;align-items:center;gap:6px;font-family:var(--fn);font-size:12px;font-weight:800">${dot(tpScore)} ${fn(tpActual)} <span style="font-family:var(--fm);font-size:9px;color:var(--dim);font-weight:400">/ ${fn(Math.round(tpTarget))} exp.</span></span>
         </div>
-        <div style="height:3px;background:var(--bdr);border-radius:3px;overflow:hidden;margin-top:-4px">
-          <div style="height:100%;width:${Math.min(tpPct,100).toFixed(1)}%;background:${tpScore==='grn'?'var(--grn)':tpScore==='amb'?'var(--amb)':'var(--red)'};border-radius:3px;transition:width .5s"></div>
-        </div>
-        <div style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-top:-3px">${tpPct.toFixed(0)}% of target · Full month target: ${fn(tpFullMth)}</div>
       </div>
     </div>`;
   }).join('');
@@ -2612,6 +2754,7 @@ function renderGMD(){
         </div>
       </div>`;
   });
+}catch(e){console.error('[renderGMD CRASH]',e);}
 }
 
 /* ═══════════════════════════ REGION ════════════════════════ */
@@ -2673,8 +2816,12 @@ function renderRgn(regName){
   /* ── Table rows ── */
   let tblRows = '';
   const T = D.targets || {};
-  const rgt = (T.regRevTargets  && T.regRevTargets[regName])  || 0;
-  const rct = (T.regTargets     && T.regTargets[regName])     || 0;
+  const rgt = activeASM
+    ? Math.round(Object.values(D.reps).filter(function(rep){return !rep.isManager && rep.asm===activeASM && rep.region===regName;}).reduce(function(s,rep){return s+(rep.targetCases||0);},0) * (T.blendedPrice||0))
+    : (T.regRevTargets && T.regRevTargets[regName]) || 0;
+  const rct = activeASM
+    ? Object.values(D.reps).filter(function(rep){return !rep.isManager && rep.asm===activeASM && rep.region===regName;}).reduce(function(s,rep){return s+(rep.targetCases||0);},0)
+    : (T.regTargets && T.regTargets[regName]) || 0;
   const rPct = rgt>0 ? Math.min(rd.revenue/rgt*100,999) : null;
   const rPctColor = rPct===null?'var(--dim)':rPct>=100?'var(--grn)':rPct>=75?'var(--amb)':'var(--red)';
 
