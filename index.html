@@ -538,6 +538,9 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
       <div class="perf-panel"><div class="perf-panel-hd" style="color:var(--grn)">🥉 #3 Rep</div><div id="gmd-top3"></div></div>
     </div>
 
+    <!-- GMD BRIEFING -->
+    <div id="gmd-briefing" style="margin-top:10px"></div>
+
   </div>
 </div>
 
@@ -2787,9 +2790,186 @@ function renderGMD(){try{
       </div>`;
   });
 }catch(e){console.error('[renderGMD CRASH]',e);}
+  try{renderGMDBriefing();}catch(e){console.error('[BRIEF]',e);}
 }
 
-/* ═══════════════════════════ REGION ════════════════════════ */
+/* ═══════════════════════════ GMD BRIEFING ════════════════════════════ */
+function renderGMDBriefing(){
+  const el = document.getElementById('gmd-briefing');
+  if(!el || !D) return;
+
+  const I   = D.intel || {}, T = D.targets || {}, ov = D.overall || {};
+  const dg  = I.workDaysGone || 1, dm = I.workDaysInMonth || 22, dl = I.workDaysLeft || 0;
+  const pct = dg / dm;
+  const ym  = I.dominantYM || '';
+  const mon = ym ? (function(){ var d=new Date(ym+'-01'); return d.toLocaleDateString('en-GB',{month:'long',year:'numeric'}); })() : 'Current Month';
+
+  const allReps    = Object.values(D.reps).filter(function(r){ return !r.isManager; });
+  const activeReps = allReps.filter(function(r){ return r.revenue>0||r.cases>0; });
+  const tgtRev     = T.totalTargetRev||0, tgtCas = T.totalTargetCases||0;
+  const totRev     = ov.revenue||0, totCas = ov.cases||0;
+  const revP       = tgtRev>0 ? totRev/tgtRev/pct*100 : 0;
+  const casP       = tgtCas>0 ? totCas/tgtCas/pct*100 : 0;
+  const totOv      = activeReps.reduce(function(s,r){return s+(r.outletCount||0);},0);
+  const ovTgt      = Math.round(110/6*dg)*activeReps.length;
+  const ovP        = ovTgt>0 ? totOv/ovTgt*100 : 0;
+  const conv       = ov.att>0 ? ov.sold/ov.att*100 : 0;
+  const drop       = totCas>0 ? totRev/totCas : 0;
+  const revGap     = tgtRev>0 ? tgtRev*pct - totRev : 0;
+
+  const rgnData = REGIONS.map(function(r){
+    const rd   = D.regions[r]||{};
+    const rRps = allReps.filter(function(x){ return x.region===r; });
+    const rTgt = rRps.reduce(function(s,x){return s+(x.targetCases||0);},0);
+    const rAch = rTgt>0&&pct>0 ? rd.cases/rTgt/pct*100 : 0;
+    const rCnv = rd.attCount>0 ? (rd.custsSold?rd.custsSold.size:0)/rd.attCount*100 : 0;
+    const rOvP = (Math.round(110/6*dg)*rd.attCount)>0
+      ? rRps.reduce(function(s,x){return s+(x.outletCount||0);},0)/(Math.round(110/6*dg)*rd.attCount)*100 : 0;
+    return {name:r, rev:rd.revenue||0, cases:rd.cases||0, rAch, rCnv, rOvP};
+  }).filter(function(x){return x.rev>0||x.cases>0;}).sort(function(a,b){return b.rAch-a.rAch;});
+
+  const top    = rgnData[0], bot = rgnData[rgnData.length-1];
+  const brands = Object.entries(I.brands||{}).filter(function(e){return e[0]!=='Unknown';})
+                   .sort(function(a,b){return b[1].revenue-a[1].revenue;});
+
+  function c(v){ return v>=80?'var(--grn)':v>=60?'var(--amb)':'var(--red)'; }
+  function b(t,cl){ return '<b style="color:'+cl+'">'+t+'</b>'; }
+  function pill(t,cl){ return '<span style="background:'+cl+'22;border:1px solid '+cl+'44;border-radius:5px;padding:2px 8px;font-family:var(--fn);font-size:10px;font-weight:700;color:'+cl+'">'+t+'</span>'; }
+
+  // Narrative paragraphs
+  var p1 = 'As of Day '+b(String(dg),'var(--txt)')+' \u2014 '+Math.round(pct*100)+'% through '+mon+' with '+b(String(dl),'var(--txt)')+' working days remaining \u2014 '
+    +'the secondary sales team has generated '+b(fm(totRev),'var(--grn)')+' in revenue against a monthly target of '+b(fm(tgtRev),'var(--dim)')+'. '
+    +'On a pace-adjusted basis, revenue achievement stands at '+b(revP.toFixed(0)+'%',c(revP))+' and volume at '+b(casP.toFixed(0)+'%',c(casP))
+    +' ('+fn(totCas)+' cases of '+fn(tgtCas)+' target). '
+    +(revGap>0
+      ? 'The team is currently '+b(fm(revGap),'var(--red)')+' behind the expected pace trajectory \u2014 requiring focus to close the gap before month end.'
+      : 'The team is '+b('ahead of pace','var(--grn)')+' \u2014 a positive position to protect through the remaining days.');
+
+  var p2 = '';
+  if(top && bot){
+    p2 = b(top.name, RC[top.name]||'var(--grn)')+' is the strongest performing region, running at '
+      +b(top.rAch.toFixed(0)+'% of paced target',c(top.rAch))+' with '+b(fm(top.rev),'var(--grn)')+' in revenue and a conversion rate of '
+      +b(top.rCnv.toFixed(0)+'%',c(top.rCnv))+'. ';
+    if(bot.rAch<70){
+      p2 += b(bot.name,'var(--red)')+' is the region of greatest concern at only '+b(bot.rAch.toFixed(0)+'% of pace','var(--red)')+'. '
+        +(bot.rCnv<40
+          ? 'The low conversion rate of '+bot.rCnv.toFixed(0)+'% suggests reps are struggling to close at outlet level \u2014 this may indicate a product availability, pricing or activity quality issue that needs immediate escalation. '
+          : 'Volume is behind and the region needs an urgent push to recover lost ground. ')
+        +'Recommend the responsible ASM be on the ground this week with a clear recovery plan.';
+    } else {
+      p2 += 'All regions are operating at or above 70% of pace.';
+    }
+  }
+
+  var p3 = 'The field force has covered '+b(fn(totOv),'var(--txt)')+' outlet visits against a paced target of '+b(fn(ovTgt),'var(--dim)')
+    +', a visit coverage rate of '+b(ovP.toFixed(0)+'%',c(ovP))+'. '
+    +(ovP<70
+      ? 'This is a concern \u2014 lower-than-expected visit activity typically signals reps are not adhering to route plans or are consolidating visits to familiar accounts rather than expanding coverage.'
+      : ovP<85
+        ? 'Coverage is acceptable but there is room to improve, particularly in regions where conversion is low.'
+        : 'Visit coverage is strong, indicating good route adherence across the field.')
+    +' The overall conversion rate is '+b(conv.toFixed(1)+'%',c(conv))+'. '
+    +(conv<50
+      ? 'A conversion rate below 50% is a significant flag \u2014 reps are visiting outlets but more than half are not buying. Common causes include stock gaps, poor sales technique, or competitive activity.'
+      : conv<70
+        ? 'Conversion is moderate. Improving this metric even by a few points would have a material impact on revenue.'
+        : 'Conversion is strong \u2014 visits are translating effectively into orders.')
+    +' Average drop size is '+b(fn(Math.round(drop))+' per case','var(--grn)')+'.';
+
+  var p4 = '';
+  if(brands.length>0){
+    var tb=brands[0], wb2=brands[brands.length-1];
+    p4 = b(tb[0],'#00e5a0')+' is the dominant brand, contributing '+b(fm(tb[1].revenue),'var(--grn)')
+      +' \u2014 '+((tb[1].revenue/totRev)*100).toFixed(0)+'% of total secondary revenue. '
+      +(brands.length>1&&wb2[0]!==tb[0]
+        ? b(wb2[0],'var(--amb)')+' is the lowest contributor at '+fm(wb2[1].revenue)
+          +'. Review distribution coverage, rep focus and outlet-level availability for this SKU.'
+        : '');
+  }
+
+  var actions = [];
+  if(revP<70)          actions.push({i:'🔴',t:'Revenue is significantly behind pace. Convene an urgent review with all ASMs to understand blockers and agree a recovery plan before month end.'});
+  else if(revP<85)     actions.push({i:'🟡',t:'Revenue is below expected pace. Monitor daily and accelerate activity in lagging regions.'});
+  if(ovP<70)           actions.push({i:'🔴',t:'Outlet visit coverage is critically low at '+ovP.toFixed(0)+'%. Enforce daily route plans and track visits in morning stand-ups across all regions.'});
+  if(conv<50)          actions.push({i:'🔴',t:'Conversion is below 50% \u2014 more than half of outlet visits are not resulting in a sale. Investigate product availability, pricing and rep call quality.'});
+  if(bot&&bot.rAch<60) actions.push({i:'🔴',t:bot.name+' region is critically behind at '+bot.rAch.toFixed(0)+'% pace. The responsible ASM should submit a written recovery plan within 24 hours.'});
+  else if(bot&&bot.rAch<75) actions.push({i:'🟡',t:bot.name+' region needs attention. Review route plans and ensure full rep attendance for the rest of the month.'});
+  if(drop<3000)        actions.push({i:'🟡',t:'Average drop size is low at \u20a6'+fn(Math.round(drop))+'/case. Reps should focus on selling broader range and increasing order quantities per visit.'});
+  if(!actions.length)  actions.push({i:'🟢',t:'The team is on track. Maintain momentum and focus on maximising revenue in the remaining '+dl+' working days.'});
+
+  window._briefCopy = function(){
+    var txt = document.getElementById('gmd-brief-text').innerText||'';
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(function(){toast('\u2713 Briefing copied');}).catch(function(){
+        var ta=document.createElement('textarea'); ta.value=txt; ta.style.cssText='position:fixed;opacity:0';
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        try{document.execCommand('copy');toast('\u2713 Briefing copied');}catch(e){toast('Select text manually');}
+        document.body.removeChild(ta);
+      });
+    }
+  };
+
+  var now = new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+
+  el.innerHTML =
+    '<div style="background:var(--s1);border:1px solid var(--bdr);border-radius:var(--r);overflow:hidden;margin-bottom:26px">'
+    +'<div style="background:var(--s2);border-bottom:1px solid var(--bdr);padding:16px 22px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">'
+      +'<div>'
+        +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:var(--amb)">&#128203; GMD Briefing \u2014 '+mon+'</div>'
+        +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-top:3px;letter-spacing:.8px">SECONDARY SALES UPDATE \u00b7 DAY '+dg+' OF '+dm+' \u00b7 '+Math.round(pct*100)+'% THROUGH MONTH \u00b7 '+dl+' DAYS REMAINING</div>'
+      +'</div>'
+      +'<button onclick="window._briefCopy()" style="background:var(--grnd);border:1px solid rgba(0,229,160,.35);border-radius:8px;padding:7px 14px;color:var(--grn);font-family:var(--fn);font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">&#128203; Copy Briefing</button>'
+    +'</div>'
+    +'<div id="gmd-brief-text" style="padding:22px 26px;display:flex;flex-direction:column;gap:20px">'
+      +'<div>'
+        +'<div style="font-family:var(--fn);font-size:11px;font-weight:800;letter-spacing:1.2px;color:var(--amb);margin-bottom:8px">OVERALL PERFORMANCE</div>'
+        +'<div style="font-family:var(--fb);font-size:13.5px;line-height:2;color:var(--txt)">'+p1+'</div>'
+      +'</div>'
+      +'<div>'
+        +'<div style="font-family:var(--fn);font-size:11px;font-weight:800;letter-spacing:1.2px;color:var(--blu);margin-bottom:8px">REGIONAL FOCUS AREAS</div>'
+        +'<div style="font-family:var(--fb);font-size:13.5px;line-height:2;color:var(--txt);margin-bottom:12px">'+p2+'</div>'
+        +'<div style="display:flex;flex-direction:column;gap:5px">'
+        +rgnData.map(function(x){
+          return '<div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:var(--s2);border-radius:8px;border-left:3px solid '+(RC[x.name]||'var(--grn)')+'">'
+            +'<span style="font-family:var(--fn);font-weight:800;font-size:12px;color:'+(RC[x.name]||'var(--grn)')+';min-width:72px">'+x.name+'</span>'
+            +'<div style="flex:1;height:5px;background:var(--bdr);border-radius:3px;overflow:hidden">'
+              +'<div style="width:'+Math.min(x.rAch,100).toFixed(0)+'%;height:100%;background:'+c(x.rAch)+';border-radius:3px"></div>'
+            +'</div>'
+            +'<span style="font-family:var(--fn);font-size:12px;font-weight:800;color:'+c(x.rAch)+';min-width:38px;text-align:right">'+x.rAch.toFixed(0)+'%</span>'
+            +'<div style="display:flex;gap:5px;flex-wrap:wrap">'
+              +pill(fn(x.cases)+' cs','var(--blu)')
+              +pill(x.rCnv.toFixed(0)+'% cv',c(x.rCnv))
+              +pill(x.rOvP.toFixed(0)+'% vis',c(x.rOvP))
+            +'</div>'
+            +'<span style="font-family:var(--fn);font-size:12px;font-weight:800;color:var(--grn);min-width:70px;text-align:right">'+fm(x.rev)+'</span>'
+          +'</div>';
+        }).join('')
+        +'</div>'
+      +'</div>'
+      +'<div>'
+        +'<div style="font-family:var(--fn);font-size:11px;font-weight:800;letter-spacing:1.2px;color:var(--pur);margin-bottom:8px">STORE VISITS &amp; CONVERSION</div>'
+        +'<div style="font-family:var(--fb);font-size:13.5px;line-height:2;color:var(--txt)">'+p3+'</div>'
+      +'</div>'
+      +(p4?'<div>'
+        +'<div style="font-family:var(--fn);font-size:11px;font-weight:800;letter-spacing:1.2px;color:#00b87d;margin-bottom:8px">BRAND &amp; SKU TRENDS</div>'
+        +'<div style="font-family:var(--fb);font-size:13.5px;line-height:2;color:var(--txt)">'+p4+'</div>'
+      +'</div>':'')
+      +'<div style="background:rgba(255,71,87,.06);border:1px solid rgba(255,71,87,.2);border-radius:10px;padding:16px 18px">'
+        +'<div style="font-family:var(--fn);font-size:11px;font-weight:800;letter-spacing:1.2px;color:var(--red);margin-bottom:12px">&#9889; WHERE TO FOCUS ATTENTION</div>'
+        +'<div style="display:flex;flex-direction:column;gap:8px">'
+        +actions.map(function(a){
+          return '<div style="display:flex;gap:12px;align-items:flex-start">'
+            +'<span style="font-size:15px;flex-shrink:0;margin-top:2px">'+a.i+'</span>'
+            +'<span style="font-family:var(--fb);font-size:13px;line-height:1.75;color:var(--txt)">'+a.t+'</span>'
+          +'</div>';
+        }).join('')
+        +'</div>'
+      +'</div>'
+      +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);text-align:right;letter-spacing:.8px;border-top:1px solid var(--bdr);padding-top:10px">Auto-generated from live dashboard data \u00b7 '+now+'</div>'
+    +'</div></div>';
+}
+
+
 function renderRgn(regName){
   const key=RK[regName], el=document.getElementById('rg-'+key);
   if(!el) return;
