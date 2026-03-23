@@ -473,10 +473,10 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
     <div class="cg g2">
       <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Attendance by Region</div><div class="cw"><canvas id="c-ov-att"></canvas></div></div>
       <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Conversion Rate % by Region</div><div class="cw"><canvas id="c-ov-con"></canvas></div></div>
-      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Avg Compliance % by Region <span style="font-size:9px;opacity:.6">(target 220)</span></div><div class="cw"><canvas id="c-ov-cmp"></canvas></div></div>
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Avg Compliance % by Region <span id="ov-cmp-ttl" style="font-size:9px;opacity:.6">(target 220)</span></div><div class="cw"><canvas id="c-ov-cmp"></canvas></div></div>
     </div>
     <div class="tb"><div class="tb-hd"><span style="color:var(--grn)">▪</span>Full Region Summary</div>
-      <div style="overflow-x:auto"><table><thead><tr><th>Region</th><th>MTD Revenue</th><th>Rev Target</th><th>Achieved</th><th>Cases</th><th>Cases Target</th><th>Active</th><th>Productive</th><th>Conv. Rate</th><th>Compliance <span style="font-weight:400;font-size:9px;opacity:.7">/220</span></th></tr></thead>
+      <div style="overflow-x:auto"><table><thead><tr><th>Region</th><th>MTD Revenue</th><th>Rev Target</th><th>Achieved</th><th>Cases</th><th>Cases Target</th><th>Active</th><th>Productive</th><th>Conv. Rate</th><th>Compliance <span id="ov-tbl-cmp-hdr" style="font-weight:400;font-size:9px;opacity:.7">/220</span></th></tr></thead>
       <tbody id="ov-tbl"></tbody></table></div>
     </div>
   </div>
@@ -774,6 +774,14 @@ const RC = {NORTH:'#00e5a0',LAGOS:'#3d9eff',EAST:'#a259ff',WEST:'#f5a623',SOUTH:
 const RK = {NORTH:'north',LAGOS:'lagos',EAST:'east',WEST:'west',SOUTH:'south','Key Acct':'ka'};
 const COMPLIANCE_TARGET = 220; // expected outlets per rep per month
 const ATTE = ['North Atte','Lagos Atte','SE Atte','East Atte','West Atte','SS Atte','South Atte']; // all possible names — missing ones skipped at runtime
+
+// Update static HTML labels that reference COMPLIANCE_TARGET
+document.addEventListener('DOMContentLoaded', function(){
+  ['ov-cmp-ttl','ov-tbl-cmp-hdr'].forEach(function(id){
+    const el = document.getElementById(id);
+    if(el) el.textContent = id==='ov-cmp-ttl' ? '(target '+COMPLIANCE_TARGET+')' : '/'+COMPLIANCE_TARGET;
+  });
+});
 
 let D=null, CH={}, viewerMode=false, activeASM=null;
 let MONTHS={}, activeMonth=null; // multi-month store
@@ -1406,6 +1414,9 @@ function parseWB(wb){
     if(loginCol<0)     loginCol     = 2;
     if(nameCol<0)      nameCol      = 3;
 
+    // Also detect numoutletvisited column
+    const numOutletCol = colIdx(hdr, 'numoutlet', 'num_outlet', 'outlets visited', 'outlet visited');
+
     for(let i = hdrRow+1; i < rows.length; i++){
       const row = rows[i];
       if(!row || row[0]==null) continue;
@@ -1413,6 +1424,14 @@ function parseWB(wb){
       const login = String(row[loginCol]    ||'').trim();
       const name  = String(row[nameCol]     ||'').trim();
       if(!code || code.startsWith('=')) continue;
+
+      // Accumulate numoutletvisited per rep
+      const numOv = numOutletCol>=0 ? parseFloat(row[numOutletCol]||0)||0 : 0;
+      const repKey = login && rgnFromCode(login) ? login : (rgnFromCode(code) ? code : null);
+      if(repKey && numOv > 0){
+        if(!reps[repKey]) ensureRep(repKey, rgnFromCode(repKey), name, loginToASM[repKey]||loginToASM[code]||'');
+        reps[repKey].outletCount = (reps[repKey].outletCount||0) + numOv;
+      }
 
       if(login && !login.startsWith('=')){
         codeToLogin[code]  = login;
@@ -1520,7 +1539,7 @@ function parseWB(wb){
         if(!row || row[0]==null) continue;
         const custName  = String(row[custCol]     ||'').trim();
         const custCode  = String(row[custCodeCol] ||'').trim();
-        const custId    = custCode || custName;  // prefer unique cust_code for dedup
+        const custId    = custCode || custName;  // unique customer — dedup multiple visits to same outlet
         let   code      = String(row[codeCol]     ||'').trim();
         const login     = String(row[loginCol]    ||'').trim();
 
@@ -1817,9 +1836,10 @@ function parseWB(wb){
   for(const r of REGIONS){
     // attCount: only non-manager codes in the attendance set
     reg[r].attCount  = [...reg[r].att].filter(code=>!isManagerCode(code)).length;
-    reg[r].metCount  = reg[r].outlets.size;
     reg[r].soldCount = reg[r].custsSold.size;
-    // metCount must be >= soldCount (can't sell to more than you visited)
+    // metCount: sum rep outletCounts (set during Attendance data parsing from numoutletvisited)
+    // Will be recalculated after rep finalisation — set placeholder from outlets Set for now
+    reg[r].metCount  = reg[r].outlets.size;
     if(reg[r].metCount < reg[r].soldCount) reg[r].metCount = reg[r].soldCount;
     reg[r].conv = reg[r].metCount>0 ? Math.min(reg[r].soldCount/reg[r].metCount*100, 100) : 0;
   }
@@ -1876,14 +1896,24 @@ function parseWB(wb){
   /* ── Rep finalisation & compliance ── */
   for(const code of Object.keys(reps)){
     const rep = reps[code];
-    rep.outletCount = rep.outlets   instanceof Set ? rep.outlets.size   : 0;
-    rep.soldCount   = rep.custsSold instanceof Set ? rep.custsSold.size : 0;
-    // A rep cannot sell to more customers than they visited — floor outletCount at soldCount
+    // outletCount: always use unique Set from OUTLET VISIT REPORT
+    // one customer = counted once, even if visited multiple times in the month
+    rep.outletCount = rep.outlets instanceof Set ? rep.outlets.size : 0;
+    rep.soldCount = rep.custsSold instanceof Set ? rep.custsSold.size : 0;
+    // A rep cannot sell to more customers than they visited
     if(rep.outletCount < rep.soldCount) rep.outletCount = rep.soldCount;
     rep.conv = rep.outletCount>0 ? Math.min(rep.soldCount/rep.outletCount*100, 100) : 0;
-    // Compliance: unique outlets visited vs flat 220 target
+    // Compliance: unique outlets visited vs monthly target
     rep.compliance = Math.min(rep.outletCount / COMPLIANCE_TARGET * 100, 100);
   }
+  // Recalculate region metCount from rep unique outlet counts
+  for(const r of REGIONS){
+    const regionReps = Object.values(reps).filter(rep=>rep.region===r && !rep.isManager);
+    const totalOutlets = regionReps.reduce(function(s,rep){return s+(rep.outletCount||0);},0);
+    reg[r].metCount = totalOutlets;
+    reg[r].conv = reg[r].metCount>0 ? Math.min(reg[r].soldCount/reg[r].metCount*100,100) : 0;
+  }
+
   // Region compliance = average of non-manager reps in region
   for(const r of REGIONS){
     const regionReps = Object.values(reps).filter(rep=>rep.region===r && !rep.isManager);
@@ -2300,7 +2330,7 @@ function renderOV(){try{
    +`<div class="kc a"><div class="kc-lbl">Customers Sold To</div><div class="kc-val c-a">${fn(o.sold)}</div><div class="kc-sub">Unique MTD</div></div>`
    +`<div class="kc p"><div class="kc-lbl">Drop Size</div><div class="kc-val c-p">${o.sold>0?(o.cases/o.sold).toFixed(1):'-'} cs</div><div class="kc-sub">Avg cases per customer</div></div>`
    +`<div class="kc"><div class="kc-lbl">Overall Conv.</div><div class="kc-val">${fp(o.met>0?o.sold/o.met*100:0)}</div><div class="kc-sub">Sold ÷ Visited</div></div>`
-   +`<div class="kc"><div class="kc-lbl">Avg Compliance</div><div class="kc-val ${overallCompliance>=100?'c-g':overallCompliance>=75?'c-a':''}">${fp(overallCompliance)}</div><div class="kc-sub">${compliantTotal}/${allReps.length} reps at target (220)</div></div>`;
+   +`<div class="kc"><div class="kc-lbl">Avg Compliance</div><div class="kc-val ${overallCompliance>=100?'c-g':overallCompliance>=75?'c-a':''}">${fp(overallCompliance)}</div><div class="kc-sub">${compliantTotal}/${allReps.length} reps at target (${COMPLIANCE_TARGET})</div></div>`;
 
   // Region achievement cards — when ASM is active show only their region, else all regions
   const rgnAchEl = document.getElementById('ov-rgn-ach');
@@ -2666,8 +2696,9 @@ function renderGMD(){try{
     const attRate = totalRepsInRegion>0 ? rd.attCount/totalRepsInRegion*100 : 100;
     const attScore = attRate>=85?'grn':attRate>=65?'amb':'red';
 
-    // 5. TOUCHPOINTS: outlets visited vs 220 * days elapsed (pro-rated)
-    const tpTarget  = Math.round(110/6 * wDaysElapsed) * rd.attCount; // 110 outlets per 6-day week, bi-weekly route
+    // 5. TOUCHPOINTS: outlets visited vs COMPLIANCE_TARGET prorated by days elapsed
+    const dailyRepTarget = COMPLIANCE_TARGET / (_wTotal || 26);
+    const tpTarget  = Math.round(dailyRepTarget * wDaysElapsed) * rd.attCount;
     const tpActual  = rd.metCount;
     const tpPct     = tpTarget>0 ? tpActual/tpTarget*100 : 100;
     const tpScore   = tpPct>=85?'grn':tpPct>=60?'amb':'red';
@@ -3261,7 +3292,7 @@ function renderRgn(regName){
     +'<div class="kc p"><div class="kc-lbl">Drop Size</div><div class="kc-val c-p">'+(rd.soldCount>0?(rd.cases/rd.soldCount).toFixed(1):'-')+' cs</div><div class="kc-sub">Avg cases per customer</div></div>'
     +'<div class="kc p"><div class="kc-lbl">Conversion Rate</div><div class="kc-val c-p">'+fp(rd.conv)+'</div></div>'
     +'<div class="kc" style="border-color:'+compColor+'33">'
-    +'<div class="kc-lbl">Avg Compliance <span style="font-size:9px;color:var(--dim)">(vs 220)</span></div>'
+    +'<div class="kc-lbl">Avg Compliance <span style="font-size:9px;color:var(--dim)">(vs '+COMPLIANCE_TARGET+')</span></div>'
     +'<div class="kc-val" style="color:'+compColor+'">'+fp(rd.compliance||0)+'</div>'
     +'<div class="kc-sub">'+(rd.compliantCount||0)+' of '+reps.length+' reps at target</div>'
     +'</div>'
@@ -3278,7 +3309,7 @@ function renderRgn(regName){
     +'<table><thead><tr>'
     +'<th>#</th><th>Code</th><th>Name</th><th>ASM</th>'
     +'<th>Revenue</th><th>Rev Target</th><th>Achieved%</th><th>Cases</th><th>Cases Target</th><th>Drop Size</th><th>Outlets Met</th><th>Visit Target</th><th>Visit%</th><th>Customers Sold</th><th>Conversion</th>'
-    +'<th>Compliance <span style="font-weight:400;font-size:9px;opacity:.7">/220</span></th>'
+    +'<th>Compliance <span style="font-weight:400;font-size:9px;opacity:.7">/'+COMPLIANCE_TARGET+'</span></th>'
     +'</tr></thead><tbody>'
     +tblRows
     +'</tbody></table>'
@@ -3851,7 +3882,7 @@ function renderASM(){
       ? `<div class="kc b"><div class="kc-lbl">Reps in Team</div><div class="kc-val">${totalReps}</div><div class="kc-sub">${activeASM}</div></div>`
       : `<div class="kc a"><div class="kc-lbl">Top ASM</div><div class="kc-val c-a">${topASM.name}</div><div class="kc-sub">${fm(topASM.revenue)} · ${topASM.region}</div></div>`)
    +`<div class="kc"><div class="kc-lbl">Avg Rev / Rep</div><div class="kc-val c-g">${fm(Math.round(totalRev/Math.max(totalReps,1)))}</div><div class="kc-sub">Across this selection</div></div>`
-   +`<div class="kc"><div class="kc-lbl">Avg Compliance</div><div class="kc-val ${avgComp>=100?'c-g':avgComp>=75?'c-a':'c-r'}">${avgComp.toFixed(1)}%</div><div class="kc-sub">${asms.reduce(function(s,a){return s+a.compliant;},0)}/${totalReps} reps at target (220)</div></div>`;
+   +`<div class="kc"><div class="kc-lbl">Avg Compliance</div><div class="kc-val ${avgComp>=100?'c-g':avgComp>=75?'c-a':'c-r'}">${avgComp.toFixed(1)}%</div><div class="kc-sub">${asms.reduce(function(s,a){return s+a.compliant;},0)}/${totalReps} reps at target (${COMPLIANCE_TARGET})</div></div>`;
 
   // ASM ranking table
   document.getElementById('asm-tbl-cnt').textContent = asms.length+' ASMs';
