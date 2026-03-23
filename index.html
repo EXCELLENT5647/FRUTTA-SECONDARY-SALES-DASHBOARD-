@@ -422,6 +422,7 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
   <button class="ntab" onclick="sw('ka',this)"><span class="dot"></span>Key Account</button>
   <button class="ntab" onclick="sw('asm',this)"><span class="dot"></span>ASM Scorecard</button>
   <button class="ntab" onclick="sw('intel',this)"><span class="dot"></span>Intelligence</button>
+  <button class="ntab" onclick="sw('db',this)"><span class="dot"></span>DB Performance</button>
   <button class="ntab" id="upl-tab" onclick="sw('upl',this)">⬆ Upload</button>
 </nav>
 
@@ -605,6 +606,13 @@ body.light-mode .logo-text{background:linear-gradient(90deg,var(--txt),var(--grn
 </div>
 
 <!-- ASM SCORECARD -->
+<div id="view-db" class="view">
+  <div id="db-body" style="padding:24px 32px;max-width:1600px;margin:0 auto">
+    <div class="sec-label" style="margin-bottom:16px"><span style="color:var(--blu)">▪</span> DB Performance</div>
+    <div id="db-filters" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px"></div>
+    <div id="db-content"></div>
+  </div>
+</div>
 <div id="view-asm" class="view">
   <div id="asm-empty" class="empty"><div class="ico">👔</div><h3>Upload report to view ASM Scorecard</h3><p>All ASM metrics are built automatically from your file</p></div>
   <div id="asm-body" style="display:none">
@@ -1212,17 +1220,59 @@ function parseWB(wb){
       const login = String(row[4]||'').trim();  // Login ID e.g. KATEE1238
       const asm   = cleanAsm(String(row[5]||''));
       if(!sc || sc.toLowerCase()==='salesman_code' || sc.startsWith('=')) continue;
+      // Always store name/ASM against the numeric salesman_code — covers ALL reps not just KA
+      if(name) loginToName[sc] = loginToName[sc] || name;
+      if(asm)  loginToASM[sc]  = loginToASM[sc]  || asm;
+      // Also store against numeric-only portion of login (e.g. login=NORSR1079 → store '1079')
+      if(login){
+        const lSuffix = login.replace(/^[A-Z]+/i,'');
+        if(lSuffix && /\d/.test(lSuffix) && lSuffix !== sc){
+          if(name) loginToName[lSuffix] = loginToName[lSuffix] || name;
+          if(asm)  loginToASM[lSuffix]  = loginToASM[lSuffix]  || asm;
+          loginToCode[lSuffix] = loginToCode[lSuffix] || login;
+        }
+      }
       if(login && rgnFromCode(login)){
-        // Bridge: numeric salesman code → KAT login
+        // Bridge: numeric salesman code → KAT login (KA reps)
         numericToLogin[sc] = login;
         // Also register into lookup tables
         loginToASM[login]  = loginToASM[login]  || asm;
         loginToName[login] = loginToName[login] || name;
-        loginToASM[sc]     = loginToASM[sc]     || asm;
-        loginToName[sc]    = loginToName[sc]    || name;
         codeToLogin[sc]    = codeToLogin[sc]    || login;
         loginToCode[login] = loginToCode[login] || sc;
+      } else if(login){
+        // Non-KA reps: login may be like NORSR1079 — still bridge it
+        codeToLogin[sc]    = codeToLogin[sc]    || login;
+        loginToCode[login] = loginToCode[login] || sc;
+        loginToASM[login]  = loginToASM[login]  || asm;
+        loginToName[login] = loginToName[login] || name;
+        if(rgnFromCode(login)) numericToLogin[sc] = login;
       }
+    }
+  }
+
+
+  /* ── Build dbMap: login → {dbCode, dbName} from Resource Alignment ── */
+  const dbMap = {};       // dbCode → {name, reps:[loginId,...], region}
+  const loginToDb = {};   // loginId → dbCode
+  if(wsRA){
+    const raRows2 = XLSX.utils.sheet_to_json(wsRA, {header:1, defval:null});
+    for(let i=1; i<raRows2.length; i++){
+      const row = raRows2[i];
+      if(!row || !row[4]) continue;
+      const login  = String(row[4]||'').trim();
+      const dbCode = String(row[5]||'').trim();
+      const dbName = String(row[6]||'').trim();
+      const region = normRgn(String(row[2]||''));
+      if(!login || !dbCode || dbCode==='#N/A' || dbCode.startsWith('=')) continue;
+      loginToDb[login] = dbCode;
+      // Also map numeric salesman_code
+      const sc = String(row[0]||'').trim();
+      if(sc) loginToDb[sc] = dbCode;
+      if(!dbMap[dbCode]){
+        dbMap[dbCode] = {name:dbName||dbCode, reps:[], region, revenue:0, cases:0, repRevs:{}};
+      }
+      if(!dbMap[dbCode].reps.includes(login)) dbMap[dbCode].reps.push(login);
     }
   }
 
@@ -1259,7 +1309,7 @@ function parseWB(wb){
     let colName = loginColAtte+1, colAsm = loginColAtte+2, colCode = -1;
     if(dataStart > 0){
       const hdr = rows[dataStart - 1] || [];
-      const ni = colIdx(hdr, 'name', 'rep name', 'staff', 'sr name', 'se name');
+      const ni = colIdx(hdr, 'name', 'rep name', 'staff', 'sr name', 'se name', 'salesman', 'employee', 'full name', 'rep_name', 'staff name');
       const ai = colIdx(hdr, 'asm', 'supervisor', 'manager');
       const ci = colIdx(hdr, 'code', 'sr code', 'login');
       if(ni >= 0) colName = ni;
@@ -1350,7 +1400,7 @@ function parseWB(wb){
     // Fallback to header-based detection
     if(salesCodeCol<0) salesCodeCol = colIdx(hdr,'code','sr code','rep code');
     if(loginCol<0)     loginCol     = colIdx(hdr,'login','login id','user');
-    if(nameCol<0)      nameCol      = colIdx(hdr,'name','rep name','staff');
+    if(nameCol<0)      nameCol      = colIdx(hdr,'name','rep name','staff','sr name','se name','salesman','employee','full name','rep_name','staff name');
     // Final fallback: assume [row, code, login, name]
     if(salesCodeCol<0) salesCodeCol = 1;
     if(loginCol<0)     loginCol     = 2;
@@ -1372,6 +1422,15 @@ function parseWB(wb){
         if(!loginToName[code]  && name) loginToName[code]  = name;
         if(!loginToName[login] && name) loginToName[login] = name;
       }
+      // Also store name by numeric-only suffix so Sales data rows (which use numeric salesman_code) can resolve names
+      // e.g. code=NORSR1003 → extract suffix '1003', store loginToName['1003']=name
+      const numericSuffix = code.replace(/^[A-Z]+/i,'');
+      if(numericSuffix && /^\d+$/.test(numericSuffix) && name){
+        loginToName[numericSuffix] = loginToName[numericSuffix] || name;
+        loginToASM[numericSuffix]  = loginToASM[numericSuffix]  || loginToASM[code] || '';
+        loginToCode[numericSuffix] = loginToCode[numericSuffix] || code;
+        numericToLogin[numericSuffix] = numericToLogin[numericSuffix] || login || code;
+      }
     }
 
     /* Re-count attendance using sales codes now that bridge is built.
@@ -1389,63 +1448,116 @@ function parseWB(wb){
 
   /* ═══════════════════════════════════════════════════════════════
      STEP 3: OUTLET VISIT REPORT
-     Auto-detect columns for: customer, rep code, login
+     Columns (known): visitcode, cust_name, cust_code, salesman_code, login, fullname, ...
+     We detect each column by exact header name first, then fallback to smart scan.
   ═══════════════════════════════════════════════════════════════ */
   const wsV = wb.Sheets['OUTLET VISIT REPORT '] || wb.Sheets['OUTLET VISIT REPORT'] || wb.Sheets['OUTLET VISIT'] || wb.Sheets['Outlet Visit'] || (function(){ const s=Object.keys(wb.Sheets).find(function(k){return k.toUpperCase().includes('OUTLET')&&k.toUpperCase().includes('VISIT');}); return s?wb.Sheets[s]:null; })();
   if(wsV){
     const rows = XLSX.utils.sheet_to_json(wsV, {header:1, defval:null});
     if(rows.length > 0){
       const hdr = rows[0] || [];
-      let custCol  = colIdx(hdr, 'customer', 'outlet', 'cust name', 'account');
-      let codeCol  = colIdx(hdr, 'code', 'sr code', 'rep code', 'staff code');
-      let loginCol = colIdx(hdr, 'login', 'login id', 'user id');
-      // Fallback: scan first rows to auto-detect
-      if(custCol<0 || codeCol<0){
-        for(let i=1; i<Math.min(rows.length,5); i++){
-          const row=rows[i]; if(!row) continue;
-          for(let c=0; c<Math.min(row.length,8); c++){
-            const v=String(row[c]||'').trim().toUpperCase();
-            if(rgnFromCode(v) && !v.includes('SR') && !v.includes('SP') && codeCol<0) codeCol=c;
-            if(rgnFromCode(v) && (v.includes('SR')||v.includes('SP')) && loginCol<0)  loginCol=c;
-          }
+
+      // Detect customer name column — must NOT match visitcode or cust_code
+      // Priority: exact 'cust_name' > 'cust name' > 'customer' > 'outlet'
+      let custCol = -1;
+      (function(){
+        const exactMatches = ['cust_name','cust name','customer name'];
+        for(const kw of exactMatches){
+          const idx = hdr.findIndex(function(v){ return String(v||'').toLowerCase().trim() === kw; });
+          if(idx >= 0){ custCol = idx; return; }
         }
-      }
-      // Hard fallback to known column positions
-      if(custCol<0)  custCol  = 1;
-      if(codeCol<0)  codeCol  = 3;
-      if(loginCol<0) loginCol = 4;
+        // Loose: contains 'cust' but NOT 'code' and NOT 'visit'
+        for(let i=0;i<hdr.length;i++){
+          const h = String(hdr[i]||'').toLowerCase();
+          if(h.includes('cust') && !h.includes('code') && !h.includes('visit')){ custCol=i; return; }
+        }
+        // Contains 'outlet' or 'customer'
+        const idx2 = hdr.findIndex(function(v){ const h=String(v||'').toLowerCase(); return h.includes('outlet')||h.includes('customer'); });
+        if(idx2>=0) custCol=idx2;
+      })();
+
+      // Detect salesman_code column — numeric rep code (NOT visitcode, NOT cust_code)
+      // Priority: exact 'salesman_code' > 'salesman code' > 'sr code' > 'rep code' > 'staff code'
+      let codeCol = -1;
+      (function(){
+        const exactMatches = ['salesman_code','salesman code','sr code','rep code','staff code'];
+        for(const kw of exactMatches){
+          const idx = hdr.findIndex(function(v){ return String(v||'').toLowerCase().trim() === kw; });
+          if(idx >= 0){ codeCol = idx; return; }
+        }
+        // Contains 'salesman' or ('sr' and 'code') but not 'visit'
+        for(let i=0;i<hdr.length;i++){
+          const h = String(hdr[i]||'').toLowerCase();
+          if((h.includes('salesman')||(h.includes('sr')&&h.includes('code'))) && !h.includes('visit')){ codeCol=i; return; }
+        }
+      })();
+
+      // Detect login column
+      let loginCol = hdr.findIndex(function(v){
+        const h = String(v||'').toLowerCase().trim();
+        return h==='login' || h==='login id' || h==='login_id';
+      });
+      if(loginCol<0) loginCol = colIdx(hdr,'login id','login','user id');
+
+      // Detect customer unique ID column (cust_code) for deduplication
+      let custCodeCol = -1;
+      (function(){
+        const idx = hdr.findIndex(function(v){ return String(v||'').toLowerCase().trim()==='cust_code'||String(v||'').toLowerCase().trim()==='cust code'; });
+        if(idx>=0){ custCodeCol=idx; return; }
+      })();
+
+      // Final fallbacks using known OUTLET VISTI structure:
+      // cols: visitcode(0), cust_name(1), cust_code(2), salesman_code(3), login(4), fullname(5)
+      if(custCol<0)     custCol     = 1;
+      if(codeCol<0)     codeCol     = 3;
+      if(loginCol<0)    loginCol    = 4;
+      if(custCodeCol<0) custCodeCol = 2;
+
+      console.log('[Frutta OUTLET] custCol='+custCol+'('+hdr[custCol]+') codeCol='+codeCol+'('+hdr[codeCol]+') loginCol='+loginCol+'('+hdr[loginCol]+') custCodeCol='+custCodeCol+'('+hdr[custCodeCol]+')');
 
       for(let i=1; i<rows.length; i++){
         const row = rows[i];
         if(!row || row[0]==null) continue;
-        const cust  = String(row[custCol]  ||'').trim();
-        let code    = String(row[codeCol]  ||'').trim();
-        const login = String(row[loginCol] ||'').trim();
-        if(!cust || !code || code.startsWith('=')) continue;
+        const custName  = String(row[custCol]     ||'').trim();
+        const custCode  = String(row[custCodeCol] ||'').trim();
+        const custId    = custCode || custName;  // prefer unique cust_code for dedup
+        let   code      = String(row[codeCol]     ||'').trim();
+        const login     = String(row[loginCol]    ||'').trim();
 
-        // For KA: numeric salesman_code won't match rgnFromCode — use login (KATEE* etc.) as canonical code
+        if(!custId) continue;
+        if(!code && !login) continue;
+        if(code.startsWith('=')) continue;
+
+        // Skip test accounts
+        if(code==='9999' || code==='1075' || login==='9999') continue;
+
+        // Resolve code: if numeric or unrecognised, use login
         if(!rgnFromCode(code) && login && rgnFromCode(login)){
           code = login;
         }
-        // Also try numeric→KAT bridge
         if(!rgnFromCode(code) && numericToLogin[code]){
           code = numericToLogin[code];
+        }
+        // Last resort: use login as code if it maps to a region
+        if(!rgnFromCode(code) && login && rgnFromCode(login)){
+          code = login;
         }
 
         const rgn = rgnFromCode(code) || null;
         if(!rgn) continue;
 
+        // Bridge code ↔ login
         if(login && !login.startsWith('=') && login !== code){
           codeToLogin[code]  = codeToLogin[code]  || login;
           loginToCode[login] = loginToCode[login] || code;
         }
-        const asm  = loginToASM[code] || loginToASM[login] || loginToASM[codeToLogin[code]] || '';
-        const name = loginToName[code]|| loginToName[login]|| loginToName[codeToLogin[code]]|| '';
+        const asm  = loginToASM[code]  || loginToASM[login]  || loginToASM[codeToLogin[code]]  || '';
+        const name = loginToName[code] || loginToName[login] || loginToName[codeToLogin[code]] || '';
 
-        reg[rgn].outlets.add(cust);
+        reg[rgn].outlets.add(custId);
         ensureRep(code, rgn, name, asm);
-        reps[code].outlets.add(cust);
-        // MTD attendance: visited at least one outlet = was active in the field
+        reps[code].outlets.add(custId);
+        // MTD attendance
         reg[rgn].att.add(code);
       }
     }
@@ -1469,6 +1581,23 @@ function parseWB(wb){
       // Detect brand column dynamically from header or data scan
       const HDR_ROW = rowsStr[0] || [];
       const KNOWN_BRANDS_SET = new Set(['Frutta 1ltr','Maccaw','PET 50CL','PET 35CL','California']);
+      // Detect name column from header
+      console.log('[Frutta NAME DEBUG] HDR_ROW first 10:', JSON.stringify((rowsStr[0]||[]).slice(0,10)));
+      console.log('[Frutta NAME DEBUG] Row 1 sample:', JSON.stringify((rowsStr[1]||[]).slice(0,10)));
+      const nameColSales = (function(){
+        const keywords = ['name','rep name','sr name','se name','staff name','salesman','full name','employee','rep_name','staff'];
+        for(const kw of keywords){
+          const idx = HDR_ROW.findIndex(function(v){ return String(v||'').toLowerCase().includes(kw); });
+          if(idx >= 0){
+            console.log('[Frutta NAME] matched keyword "'+kw+'" at col '+idx);
+            return idx;
+          }
+        }
+        console.warn('[Frutta NAME] NO match! Falling back to col 2. HDR_ROW=', JSON.stringify((rowsStr[0]||[]).slice(0,15)));
+        return 2;
+      })();
+      console.log('[Frutta NAME] nameColSales='+nameColSales+', value in row1='+JSON.stringify((rowsStr[1]||[])[nameColSales]));
+
       let brandCol = HDR_ROW.findIndex(function(v){ return String(v||'').toLowerCase().includes('brand'); });
       if(brandCol < 0){
         outer: for(let c=0; c<HDR_ROW.length; c++){
@@ -1548,6 +1677,20 @@ function parseWB(wb){
           const numSc = String(rowS[1]||'').trim();
           if(numericToLogin[numSc]){
             code = numericToLogin[numSc]; codeCol = 1;
+          } else if(numSc && /^\d+$/.test(numSc)){
+            // Non-KA numeric code — store name/asm from this row into loginToName
+            // so the final backfill can pick it up once the code bridge is resolved
+            const _nameHere = String(rowS[nameColSales]||'').trim();
+            const _asmHere  = loginToASM[numSc] || '';
+            if(_nameHere) loginToName[numSc] = loginToName[numSc] || _nameHere;
+            // Try to find the real code via codeToLogin reverse
+            const _realCode = loginToCode[numSc] || null;
+            if(_realCode){ code = _realCode; codeCol = 1; }
+            else {
+              // Store against numeric key and try to resolve later via codeToLogin
+              // For now skip — we cannot derive region without a proper code
+              continue;
+            }
           }
         }
         if(!code) continue;
@@ -1555,9 +1698,13 @@ function parseWB(wb){
         // Derive region from code — this is the ONLY source of truth
         const rgn = rgnFromCode(code.toUpperCase());
         if(!rgn || !REGIONS.includes(rgn)) continue;
+        if(rgn==='SOUTH') console.log('[SOUTH HIT] code='+code+' rgn='+rgn);
 
-        // Name: from fulname col[2] which is always the rep's full name
-        const name = String(rowS[2]||'').trim();
+        // Name: from detected name column (dynamic) with fallback to col 2
+        // Also try loginToName using the raw numeric salesman_code from col 1 as a backup
+        const _rawNumCode = String(rowS[1]||'').trim();
+        const name = String(rowS[nameColSales]||'').trim()
+                  || loginToName[_rawNumCode] || loginToName[code] || '';
 
         // Customer sold: use cust_code (col 3) as unique ID — more reliable than name
         // Outlet visited: use cust_name (col 4) for display consistency with outlet visit sheet
@@ -1585,6 +1732,7 @@ function parseWB(wb){
         const asm   = loginToASM[code] || loginToASM[login] || (reps[code]&&reps[code].asm) || '';
 
         // ── Accumulate ──
+        if(rgn==='SOUTH') console.log('[SOUTH REG] adding amt='+amt+' code='+code);
         reg[rgn].revenue += amt;
         reg[rgn].cases   += qty;
         if(custCode||cust) reg[rgn].custsSold.add(custCode||cust);
@@ -1599,6 +1747,17 @@ function parseWB(wb){
         if(custCode||cust) reps[code].custsSold.add(custCode||cust);
         // MTD attendance: made at least one sale = was active in the field
         reg[rgn].att.add(code);
+
+        // ── DB accumulation ──
+        const _login = codeToLogin[code] || code;
+        const _dbCode = loginToDb[_login] || loginToDb[code] || loginToDb[String(rowS[1]||'').trim()];
+        if(_dbCode && dbMap[_dbCode]){
+          dbMap[_dbCode].revenue += amt;
+          dbMap[_dbCode].cases   += qty;
+          if(!dbMap[_dbCode].repRevs[code]) dbMap[_dbCode].repRevs[code] = {name:name||reps[code].name||code, revenue:0, cases:0, asm:asm||reps[code].asm||''};
+          dbMap[_dbCode].repRevs[code].revenue += amt;
+          dbMap[_dbCode].repRevs[code].cases   += qty;
+        }
 
         // ── Brand / Channel / SKU intelligence ──
         const brand   = String(rowS[brandCol]||'').trim() || 'Unknown';
@@ -1631,6 +1790,8 @@ function parseWB(wb){
   }
 
   /* ── FINAL PASS: back-fill missing ASM / name ── */
+  console.log('[Frutta REPS BEFORE BACKFILL] sample:', JSON.stringify(Object.entries(reps).slice(0,3).map(function([k,v]){return {code:k,name:v.name,asm:v.asm};})));
+  console.log('[Frutta loginToName] sample:', JSON.stringify(Object.entries(loginToName).slice(0,5)));
   for(const code of Object.keys(reps)){
     if(!reps[code].asm){
       const login = codeToLogin[code] || '';
@@ -1846,7 +2007,7 @@ function parseWB(wb){
 
 
     return {overall:{revenue:tv,cases:tc,att:ta,met:tm,sold:ts},
-    regions:reg, reps, daily, dailyAll,
+    regions:reg, reps, daily, dailyAll, dbMap,
     targets:{repTargets, regTargets, regRevTargets, totalTargetCases, totalTargetRev, blendedPrice},
     intel:{brands, channels, skus, chanByRgn, brandByRgn, workDaysInMonth, workDaysGone, workDaysLeft, daysInMonth, dominantYM}};
 }
@@ -2086,6 +2247,7 @@ function renderAll(){
   for(const r of REGIONS){try{renderRgn(r);}catch(e){console.error("[RGN "+r+"]",e);}}
   try{renderIntel();}catch(e){console.error("[INTEL]",e);}
   try{renderASM();}catch(e){console.error("[ASM]",e);}
+  try{renderDB();}catch(e){console.error("[DB]",e);}
   // After all renders, force resize all charts so hidden-tab canvases get correct dimensions
   setTimeout(function(){
     Object.values(CH).forEach(function(c){try{c.resize();}catch(e){}});
@@ -2096,6 +2258,7 @@ function renderView(id){
   else if(id==='gmd') renderGMD();
   else if(id==='intel') renderIntel();
   else if(id==='asm') renderASM();
+  else if(id==='db') renderDB();
   else{const r=Object.entries(RK).find(([,k])=>k===id)?.[0]; if(r) renderRgn(r);}
 }
 
@@ -3794,6 +3957,120 @@ function renderASM(){
 }
 
 /* ═══════════════════════════ TOAST ══════════════════════════ */
+
+/* ═══════════════════════════ DB PERFORMANCE ═════════════════════════ */
+let dbRgnFilter = null;
+
+function renderDB(){
+  if(!D || !D.dbMap){ 
+    document.getElementById('db-content').innerHTML='<div class="empty"><div class="ico">📦</div><h3>No data loaded</h3><p>Upload your Excel file to see DB performance</p></div>';
+    return;
+  }
+  const fm=n=>n>=1e6?'₦'+(n/1e6).toFixed(1)+'M':n>=1e3?'₦'+(n/1e3).toFixed(0)+'K':'₦'+n.toLocaleString();
+  const fn=n=>n==null?'—':Number(n).toLocaleString();
+
+  // Build region filter buttons
+  const allRegions = [...new Set(Object.values(D.dbMap).map(d=>d.region).filter(Boolean))].sort();
+  document.getElementById('db-filters').innerHTML =
+    ['All',...allRegions].map(function(r){
+      const active = r==='All' ? !dbRgnFilter : dbRgnFilter===r;
+      const col = r==='All' ? 'var(--grn)' : (RC[r.toUpperCase()]||'var(--grn)');
+      return '<button onclick="dbRgnFilter='+(r==='All'?'null':"'"+r+"'")+';renderDB()" style="'
+        +'padding:5px 14px;border-radius:20px;cursor:pointer;transition:all .2s;'
+        +'font-family:var(--fm);font-size:10px;font-weight:700;letter-spacing:1px;'
+        +'border:1px solid '+(active?col:'var(--bdr)')+';'
+        +'background:'+(active?col+'22':'none')+';'
+        +'color:'+(active?col:'var(--dim)')+'">'+r+'</button>';
+    }).join('');
+
+  // Filter DBs by region
+  const dbs = Object.entries(D.dbMap)
+    .filter(function([code,d]){ return !dbRgnFilter || d.region.toUpperCase()===dbRgnFilter.toUpperCase() || d.region===dbRgnFilter; })
+    .map(function([code,d]){ return {...d, code}; })
+    .filter(function(d){ return d.revenue > 0; })
+    .sort(function(a,b){ return b.revenue - a.revenue; });
+
+  if(!dbs.length){
+    document.getElementById('db-content').innerHTML='<div class="empty"><div class="ico">🔍</div><h3>No DB data found</h3><p>No revenue recorded for this filter</p></div>';
+    return;
+  }
+
+  const totalRev = dbs.reduce(function(s,d){return s+d.revenue;},0);
+
+  let html = '<div style="display:grid;gap:18px">';
+
+  dbs.forEach(function(db){
+    const rgnColor = RC[(db.region||'').toUpperCase()] || 'var(--grn)';
+    const share = totalRev>0 ? (db.revenue/totalRev*100).toFixed(1) : 0;
+    const repsSorted = Object.entries(db.repRevs)
+      .map(function([code,r]){ return {...r, code}; })
+      .sort(function(a,b){ return b.revenue - a.revenue; });
+    const totalRepRev = repsSorted.reduce(function(s,r){return s+r.revenue;},0);
+
+    html += '<div class="tb" style="margin-bottom:0">'
+      // DB header
+      +'<div class="tb-hd" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+        +'<span style="color:'+rgnColor+';font-size:16px">▪</span>'
+        +'<span style="font-family:var(--fb);font-size:14px;font-weight:700;color:var(--txt)">'+db.name+'</span>'
+        +'<span style="font-family:var(--fm);font-size:9px;color:'+rgnColor+';text-transform:uppercase;letter-spacing:1px;border:1px solid '+rgnColor+'33;padding:2px 8px;border-radius:10px">'+db.region+'</span>'
+        +'<span style="font-family:var(--fm);font-size:9px;color:var(--dim)">'+db.code+'</span>'
+        +'<div style="margin-left:auto;display:flex;gap:16px;align-items:center">'
+          +'<div style="text-align:right">'
+            +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);letter-spacing:1px;text-transform:uppercase">Total Revenue</div>'
+            +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:var(--grn)">'+fm(db.revenue)+'</div>'
+          +'</div>'
+          +'<div style="text-align:right">'
+            +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);letter-spacing:1px;text-transform:uppercase">Cases</div>'
+            +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:var(--amb)">'+fn(db.cases)+'</div>'
+          +'</div>'
+          +'<div style="text-align:right">'
+            +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);letter-spacing:1px;text-transform:uppercase">Reps</div>'
+            +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:var(--blu)">'+repsSorted.length+'</div>'
+          +'</div>'
+          +'<div style="text-align:right">'
+            +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);letter-spacing:1px;text-transform:uppercase">Share</div>'
+            +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:var(--pur)">'+share+'%</div>'
+          +'</div>'
+        +'</div>'
+      +'</div>'
+      // Progress bar for share
+      +'<div style="height:3px;background:var(--bdr);margin:0;border-radius:0">'
+        +'<div style="width:'+Math.min(share,100)+'%;height:100%;background:'+rgnColor+';border-radius:0;transition:width .4s ease"></div>'
+      +'</div>'
+      // Rep table
+      +'<div style="overflow-x:auto">'
+      +'<table><thead><tr>'
+        +'<th>#</th><th>Rep Name</th><th>ASM</th><th>Revenue</th><th>Cases</th><th>Share of DB</th><th>Avg per Day</th>'
+      +'</tr></thead><tbody>'
+      +repsSorted.map(function(r,i){
+        const repShare = totalRepRev>0 ? (r.revenue/totalRepRev*100) : 0;
+        const repShareW = Math.min(repShare,100).toFixed(0);
+        const wdGone = (D.intel&&D.intel.workDaysGone)||1;
+        const avgDay = Math.round(r.revenue / wdGone);
+        return '<tr>'
+          +'<td style="color:var(--dim)">'+(i+1)+'</td>'
+          +'<td style="font-family:var(--fb);font-size:13px;font-weight:600;color:var(--txt)">'+(r.name||r.code)+'</td>'
+          +'<td style="color:var(--pur);font-size:11px">'+(r.asm||'—')+'</td>'
+          +'<td style="color:var(--grn);font-weight:700">'+fm(r.revenue)+'</td>'
+          +'<td style="color:var(--amb)">'+fn(r.cases)+'</td>'
+          +'<td>'
+            +'<div style="display:flex;align-items:center;gap:6px">'
+              +'<div style="width:80px;height:4px;background:var(--bdr);border-radius:2px;overflow:hidden">'
+                +'<div style="width:'+repShareW+'%;height:100%;background:'+rgnColor+';border-radius:2px"></div>'
+              +'</div>'
+              +'<span style="font-family:var(--fm);font-size:11px;color:var(--dim)">'+repShare.toFixed(1)+'%</span>'
+            +'</div>'
+          +'</td>'
+          +'<td style="color:var(--blu);font-family:var(--fm);font-size:11px">'+fm(avgDay)+'/day</td>'
+        +'</tr>';
+      }).join('')
+      +'</tbody></table></div></div>';
+  });
+
+  html += '</div>';
+  document.getElementById('db-content').innerHTML = html;
+}
+
 function toast(msg){
   const t=document.getElementById('toast');
   t.textContent=msg; t.classList.add('on');
