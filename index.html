@@ -4884,14 +4884,23 @@ function renderStock(){
     return rA!==0?rA:(a.name||'').localeCompare(b.name||'');
   });
 
+  // Helper: get team-sold total for a stock entry (from Sales data, not Opening Stock sheet)
+  function teamSoldTotal(e){
+    const se = sold[e.code] || {};
+    // Sum across all SKUs from sales data; fall back to sheet sellout if no sales data at all
+    const teamTotal = SKUS.reduce(function(s,sku){ return s+(se[sku]||0); }, 0);
+    return teamTotal > 0 ? teamTotal : e.totalSellout;
+  }
+  function teamSoldClosing(e){ return e.totalStock - teamSoldTotal(e); }
+
   // KPIs on filtered set
   const totPrev  = entries.reduce(function(s,e){return s+e.totalPrev;},0);
   const totShip  = entries.reduce(function(s,e){return s+e.totalShip;},0);
   const totStock = entries.reduce(function(s,e){return s+e.totalStock;},0);
-  const totSell  = entries.reduce(function(s,e){return s+e.totalSellout;},0);
-  const totClose = entries.reduce(function(s,e){return s+e.totalClosing;},0);
-  const lowCount = entries.filter(function(e){return e.totalClosing<20&&e.totalClosing>=0;}).length;
-  const outCount = entries.filter(function(e){return e.totalClosing<0;}).length;
+  const totSell  = entries.reduce(function(s,e){return s+teamSoldTotal(e);},0);
+  const totClose = entries.reduce(function(s,e){return s+teamSoldClosing(e);},0);
+  const lowCount = entries.filter(function(e){var c=teamSoldClosing(e);return c<20&&c>=0;}).length;
+  const outCount = entries.filter(function(e){return teamSoldClosing(e)<0;}).length;
   const expCount = entries.filter(function(e){return e.status&&e.status.toLowerCase().includes('expiry');}).length;
   const allCount = Object.keys(sd).length;
 
@@ -4930,8 +4939,8 @@ function renderStock(){
     +'<div class="kc b"><div class="kc-lbl">Opening Stock</div><div class="kc-val c-b">'+fn(totPrev)+'</div><div class="kc-sub">prev week cases</div></div>'
     +'<div class="kc p"><div class="kc-lbl">Shipment In</div><div class="kc-val c-p">'+fn(totShip)+'</div><div class="kc-sub">cases received</div></div>'
     +'<div class="kc"><div class="kc-lbl">Total Stock</div><div class="kc-val">'+fn(totStock)+'</div><div class="kc-sub">opening + shipment</div></div>'
-    +'<div class="kc a"><div class="kc-lbl">Cases Sold</div><div class="kc-val c-a">'+fn(totSell)+'</div><div class="kc-sub">week\'s sellout</div></div>'
-    +'<div class="kc '+(totClose<0?'r':'')+'"><div class="kc-lbl">Closing Stock</div><div class="kc-val '+(totClose<0?'c-r':'c-g')+'">'+fn(totClose)+'</div><div class="kc-sub">stock − sellout</div></div>'
+    +'<div class="kc a"><div class="kc-lbl">Cases Sold</div><div class="kc-val c-a">'+fn(totSell)+'</div><div class="kc-sub">by team (sales data)</div></div>'
+    +'<div class="kc '+(totClose<0?'r':'')+'"><div class="kc-lbl">Closing Stock</div><div class="kc-val '+(totClose<0?'c-r':'c-g')+'">'+fn(totClose)+'</div><div class="kc-sub">stock − team sellout</div></div>'
     +(lowCount>0?'<div class="kc a"><div class="kc-lbl">Low Stock</div><div class="kc-val c-a">'+lowCount+'</div><div class="kc-sub">DBs &lt; 20 cases closing</div></div>':'')
     +(outCount>0?'<div class="kc r"><div class="kc-lbl">Stockout</div><div class="kc-val c-r">'+outCount+'</div><div class="kc-sub">DBs below zero</div></div>':'')
     +(expCount>0?'<div class="kc r"><div class="kc-lbl">Near Expiry</div><div class="kc-val c-r">'+expCount+'</div><div class="kc-sub">DBs with expiry risk</div></div>':'')
@@ -4965,8 +4974,8 @@ function renderStock(){
     const rPrev  = dbs.reduce(function(s,e){return s+e.totalPrev;},0);
     const rShip  = dbs.reduce(function(s,e){return s+e.totalShip;},0);
     const rStock = dbs.reduce(function(s,e){return s+e.totalStock;},0);
-    const rSell  = dbs.reduce(function(s,e){return s+e.totalSellout;},0);
-    const rClose = dbs.reduce(function(s,e){return s+e.totalClosing;},0);
+    const rSell  = dbs.reduce(function(s,e){return s+teamSoldTotal(e);},0);
+    const rClose = dbs.reduce(function(s,e){return s+teamSoldClosing(e);},0);
     const rCC    = rClose<0?'var(--red)':rClose<50?'var(--amb)':'var(--grn)';
 
     html += '<div style="margin-bottom:30px">'
@@ -4999,10 +5008,12 @@ function renderStock(){
 
     dbs.forEach(function(e, i){
       const soldEntry = sold[e.code]||{};
+      const rowTeamSold = teamSoldTotal(e);
+      const rowClosing  = teamSoldClosing(e);
       const statusIsExp = e.status&&e.status.toLowerCase().includes('expiry');
       const sColor = statusIsExp?'var(--amb)':'var(--grn)';
       const sBg    = statusIsExp?'rgba(245,166,35,.1)':'rgba(0,229,160,.07)';
-      const cColor = e.totalClosing<0?'var(--red)':e.totalClosing<20?'var(--amb)':'var(--grn)';
+      const cColor = rowClosing<0?'var(--red)':rowClosing<20?'var(--amb)':'var(--grn)';
 
       html += '<tr>'
         +'<td style="color:var(--dim)">'+(i+1)+'</td>'
@@ -5018,7 +5029,7 @@ function renderStock(){
           const sv=soldEntry[s]>0?soldEntry[s]:(e.skus[s]?e.skus[s].sellout:0);
           return '<td style="color:var(--amb)">'+fn(sv)+'</td>';
         }).join('')
-        +'<td style="color:var(--amb);font-weight:800;border-left:1px solid var(--bdr)">'+fn(e.totalSellout)+'</td>'
+        +'<td style="color:var(--amb);font-weight:800;border-left:1px solid var(--bdr)">'+fn(rowTeamSold)+'</td>'
         +SKUS.map(function(s){
           const sk=e.skus[s]||{total:0,sellout:0};
           const sv=soldEntry[s]>0?soldEntry[s]:sk.sellout;
@@ -5026,7 +5037,7 @@ function renderStock(){
           const cc=cl<0?'var(--red)':cl<10?'var(--amb)':'var(--grn)';
           return '<td style="color:'+cc+';font-weight:700">'+cl.toLocaleString()+'</td>';
         }).join('')
-        +'<td style="font-family:var(--fn);font-size:15px;font-weight:800;color:'+cColor+';border-left:1px solid var(--bdr)">'+fn(e.totalClosing)+'</td>'
+        +'<td style="font-family:var(--fn);font-size:15px;font-weight:800;color:'+cColor+';border-left:1px solid var(--bdr)">'+fn(rowClosing)+'</td>'
         +'<td><span style="background:'+sBg+';color:'+sColor+';border:1px solid '+sColor+'44;border-radius:10px;padding:2px 9px;font-size:10px;font-weight:700;font-family:var(--fm);white-space:nowrap">'+(e.status||'Safe')+'</span></td>'
         +'</tr>';
     });
