@@ -1296,7 +1296,10 @@ th{ padding:11px 16px; }
 const REGIONS = ['NORTH','LAGOS','EAST','WEST','SOUTH','Key Acct'];
 const RC = {NORTH:'#00e5a0',LAGOS:'#3d9eff',EAST:'#a259ff',WEST:'#f5a623',SOUTH:'#ff6b9d','Key Acct':'#ff4757'};
 const RK = {NORTH:'north',LAGOS:'lagos',EAST:'east',WEST:'west',SOUTH:'south','Key Acct':'ka'};
-const COMPLIANCE_TARGET = 220; // expected outlets per rep per month
+const COMPLIANCE_TARGET = 220; // expected outlets per rep per month (non-KA)
+const COMPLIANCE_TARGET_KA = 120; // expected outlets per rep per month (Key Account)
+// Returns the correct monthly outlet visit target for a given region
+function repOutletTarget(region){ return region==='Key Acct' ? COMPLIANCE_TARGET_KA : COMPLIANCE_TARGET; }
 const ATTE = ['North Atte','Lagos Atte','SE Atte','East Atte','West Atte','SS Atte','South Atte']; // all possible names — missing ones skipped at runtime
 
 // Update static HTML labels that reference COMPLIANCE_TARGET
@@ -2427,8 +2430,8 @@ function parseWB(wb){
     // A rep cannot sell to more customers than they visited
     if(rep.outletCount < rep.soldCount) rep.outletCount = rep.soldCount;
     rep.conv = rep.outletCount>0 ? Math.min(rep.soldCount/rep.outletCount*100, 100) : 0;
-    // Compliance: unique outlets visited vs monthly target
-    rep.compliance = Math.min(rep.outletCount / COMPLIANCE_TARGET * 100, 100);
+    // Compliance: unique outlets visited vs monthly target (KA=120, others=220)
+    rep.compliance = Math.min(rep.outletCount / repOutletTarget(rep.region) * 100, 100);
   }
   // Recalculate region metCount from rep unique outlet counts
   for(const r of REGIONS){
@@ -3015,15 +3018,15 @@ function renderOV(){try{
     : Object.values(D.reps).filter(r=>!r.isManager);
   const productiveReps = allActiveReps.filter(r=>r.revenue>0).length;
 
-  const _ovI = D.intel||{}, _ovDg = _ovI.workDaysGone||1;
-  const _ovRepTgt  = Math.round(110/6 * _ovDg);  // 110 outlets per 6-day week
+  const _ovI = D.intel||{}, _ovDg = _ovI.workDaysGone||1, _ovDm = _ovI.workDaysInMonth||22;
   const _ovAllReps = allActiveReps.filter(r=>!r.isManager);
-  const _ovTeamTgt = _ovRepTgt * _ovAllReps.length;
+  // Team target = active reps × monthly target (220 regular, 120 KA) — no proration
+  const _ovTeamTgt = _ovAllReps.reduce(function(s,r){ return s + repOutletTarget(r.region); }, 0);
   const _ovActual  = _ovAllReps.reduce(function(s,r){return s+(r.outletCount||0);},0);
   document.getElementById('ov-kpis').innerHTML=
     tgtCard('Total MTD Revenue', o.revenue, totalTargetRev, {valCls:'c-g', sub: activeASM ? activeASM : 'All Regions'})
    +tgtCard('Total Cases Sold',  o.cases,   totalTargetCases, {valCls:'', sub:'Units', isCases:true})
-   +tgtCard('Outlets Visited', _ovActual, _ovTeamTgt, {valCls:'c-b', isCases:true, sub:'Day '+_ovDg+' pace · 19/rep/day (110 per week)'})
+   +tgtCard('Outlets Visited', _ovActual, _ovTeamTgt, {valCls:'c-b', isCases:true, sub:'Day '+_ovDg+' pace · 220/rep (120 for KA)'})
    +`<div class="kc"><div class="kc-lbl">Active Reps</div><div class="kc-val">${o.att}</div><div class="kc-sub">Checked in (incl. zero-rev)</div></div>`
    +`<div class="kc"><div class="kc-lbl">Productive Reps</div><div class="kc-val c-g">${productiveReps}</div><div class="kc-sub">Reps with revenue > ₦0</div></div>`
    +`<div class="kc a"><div class="kc-lbl">Customers Sold To</div><div class="kc-val c-a">${fn(o.sold)}</div><div class="kc-sub">Unique MTD</div></div>`
@@ -3227,10 +3230,13 @@ function renderOV(){try{
     const rgnLabel = rgn==='Key Acct'?'KEY ACCOUNT':rgn;
     const rowsHtml = worst.map(function(d,i){
       const pctOfTop = sorted[sorted.length-1].avgRev > 0 ? Math.round(d.avgRev / sorted[sorted.length-1].avgRev * 100) : 0;
+      // Resolve ASM code to real name: find the manager rep whose code matches d.name
+      const asmRepEntry = Object.values(D.reps).find(function(r){ return r.isManager && (r.code===d.name || r.name===d.name); });
+      const asmDisplayName = (asmRepEntry && asmRepEntry.name && !asmRepEntry.name.match(/^C\d/)) ? asmRepEntry.name : d.name;
       return '<div class="asm-flag-row">'
         +'<div class="asm-flag-pos">'+(i+1)+'</div>'
         +'<div class="asm-flag-info">'
-        +'<div class="asm-flag-name">'+d.name+'</div>'
+        +'<div class="asm-flag-name">'+asmDisplayName+'</div>'
         +'<div class="asm-flag-sub">'+d.reps+' rep'+(d.reps!==1?'s':'')+' \xb7 avg '+fm(Math.round(d.avgRev))+'/rep \xb7 '+pctOfTop+'% of top ASM</div>'
         +'</div>'
         +'<div class="asm-flag-rev">'+fm(d.revenue)+'</div>'
@@ -3280,14 +3286,14 @@ function renderGMD(){try{
   const gmdTargetRev   = o.targetRev   || 0;
   const gmdTargetCases = o.targetCases || 0;
   const _gmdActiveReps = Object.values(D.reps).filter(r=>!r.isManager&&(activeASM?r.asm===activeASM:true));
-  const _gmdRepTgt  = Math.round(110/6 * wDaysElapsed);
-  const _gmdTeamTgt = _gmdRepTgt * _gmdActiveReps.length;
+  // Team target = active reps × monthly target (220 regular, 120 KA) — no proration
+  const _gmdTeamTgt = _gmdActiveReps.reduce(function(s,r){ return s + repOutletTarget(r.region); }, 0);
   const _gmdOvAct   = _gmdActiveReps.reduce(function(s,r){return s+(r.outletCount||0);},0);
   document.getElementById('gmd-kpis').innerHTML=
     tgtCard('MTD Total Revenue',   o.revenue,        gmdTargetRev,   {valCls:'c-a', cls:'a', sub:'All regions combined'})
    +tgtCard('Projected Month-End', projected,        gmdTargetRev,   {valCls:'c-g', sub:'Run rate × '+daysInMth+' days'})
    +tgtCard('Total Cases',         o.cases,          gmdTargetCases, {valCls:'', sub:'Units sold MTD', isCases:true})
-   +tgtCard('Outlets Visited', _gmdOvAct, _gmdTeamTgt, {valCls:'c-b', isCases:true, sub:'Day '+wDaysElapsed+' pace · 19/rep/day (110 per week)'})
+   +tgtCard('Outlets Visited', _gmdOvAct, _gmdTeamTgt, {valCls:'c-b', isCases:true, sub:'Day '+wDaysElapsed+' pace · 220/rep (120 for KA)'})
    +`<div class="kc b"><div class="kc-lbl">Active Reps</div><div class="kc-val c-b">${o.att}</div><div class="kc-sub">Checked in (incl. zero-rev)</div></div>`
    +`<div class="kc"><div class="kc-lbl">Productive Reps</div><div class="kc-val c-g">${Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length}</div><div class="kc-sub">Reps with revenue > ₦0</div></div>`
    +`<div class="kc"><div class="kc-lbl">Customers Sold</div><div class="kc-val c-g">${fn(o.sold)}</div><div class="kc-sub">Unique MTD</div></div>`
@@ -3398,8 +3404,8 @@ function renderGMD(){try{
     const attRate = totalRepsInRegion>0 ? rd.attCount/totalRepsInRegion*100 : 100;
     const attScore = attRate>=85?'grn':attRate>=65?'amb':'red';
 
-    // 5. TOUCHPOINTS: outlets visited vs COMPLIANCE_TARGET prorated by days elapsed
-    const dailyRepTarget = COMPLIANCE_TARGET / (wDaysInMonth || 26);
+    // 5. TOUCHPOINTS: outlets visited vs target prorated by days elapsed (KA=120, others=220)
+    const dailyRepTarget = repOutletTarget(r) / (wDaysInMonth || 26);
     const tpTarget  = Math.round(dailyRepTarget * wDaysElapsed) * rd.attCount;
     const tpActual  = rd.metCount;
     const tpPct     = tpTarget>0 ? tpActual/tpTarget*100 : 100;
@@ -3707,7 +3713,8 @@ function renderGMDBriefing(){
   const revP       = tgtRev>0 ? totRev/tgtRev/pct*100 : 0;
   const casP       = tgtCas>0 ? totCas/tgtCas/pct*100 : 0;
   const totOv      = activeReps.reduce(function(s,r){return s+(r.outletCount||0);},0);
-  const ovTgt      = Math.round(110/6*dg)*activeReps.length;
+  // Target = active reps × monthly target (220 regular, 120 KA) — no proration
+  const ovTgt      = activeReps.reduce(function(s,r){ return s + repOutletTarget(r.region); }, 0);
   const ovP        = ovTgt>0 ? totOv/ovTgt*100 : 0;
   const conv       = ov.att>0 ? ov.sold/ov.att*100 : 0;
   const drop       = totCas>0 ? totRev/totCas : 0;
@@ -3719,8 +3726,9 @@ function renderGMDBriefing(){
     const rTgt = rRps.reduce(function(s,x){return s+(x.targetCases||0);},0);
     const rAch = rTgt>0&&pct>0 ? rd.cases/rTgt/pct*100 : 0;
     const rCnv = rd.attCount>0 ? (rd.custsSold?rd.custsSold.size:0)/rd.attCount*100 : 0;
-    const rOvP = (Math.round(110/6*dg)*rd.attCount)>0
-      ? rRps.reduce(function(s,x){return s+(x.outletCount||0);},0)/(Math.round(110/6*dg)*rd.attCount)*100 : 0;
+    const rOvActual = rRps.reduce(function(s,x){return s+(x.outletCount||0);},0);
+    const rOvTgt    = rRps.reduce(function(s,x){ return s + Math.round(repOutletTarget(x.region) / dm * dg); }, 0);
+    const rOvP = rOvTgt>0 ? rOvActual/rOvTgt*100 : 0;
     return {name:r, rev:rd.revenue||0, cases:rd.cases||0, rAch, rCnv, rOvP};
   }).filter(function(x){return x.rev>0||x.cases>0;}).sort(function(a,b){return b.rAch-a.rAch;});
 
@@ -3873,12 +3881,13 @@ function renderRgn(regName){
   const reps=fReps(regName), top5=reps.slice(0,5);
   const dates=Object.keys(D.daily[regName]||{}).sort();
   const compColor = (rd.compliance||0)>=100?'var(--grn)':(rd.compliance||0)>=75?'var(--amb)':(rd.compliance||0)>=50?'#ff8c00':'var(--red)';
-  // Outlet visit pace target — 220/month prorated by working days gone
+  // Outlet visit target = active reps × monthly target (220 regular, 120 KA)
   const _I = D.intel||{};
   const _wGone  = _I.workDaysGone    || 1;
   const _wTotal = _I.workDaysInMonth || 26;
-  const ovRepTarget   = 19 * _wGone;                                          // 19 outlets/day per rep (110÷6, bi-weekly route)
-  const ovRegTarget   = ovRepTarget * reps.length;                           // region total (active reps × pace)
+  const _monthlyRepTgt = repOutletTarget(regName);
+  const ovRepTarget  = _monthlyRepTgt;              // full monthly target per rep
+  const ovRegTarget  = ovRepTarget * reps.length;   // active reps × 220 (or 120)
   const ovRegActual   = reps.reduce(function(s,r){return s+(r.outletCount||0);},0);
 
   /* ── Top 3 / Bottom 3 reps ── */
@@ -3989,7 +3998,7 @@ function renderRgn(regName){
     +tgtCard('Cases Sold',  rd.cases,   rct, {valCls:'', isCases:true})
     +'<div class="kc a"><div class="kc-lbl">Active Reps</div><div class="kc-val c-a">'+rd.attCount+'<span style="font-size:14px;color:var(--dim)"> checked in</span></div><div class="kc-sub">Incl. zero-revenue</div></div>'
     +'<div class="kc"><div class="kc-lbl">Productive Reps</div><div class="kc-val c-g">'+reps.filter(function(r){return r.revenue>0;}).length+'<span style="font-size:14px;color:var(--dim)"> selling</span></div><div class="kc-sub">Revenue > ₦0</div></div>'
-    +tgtCard('Outlets Visited', ovRegActual, ovRegTarget, {valCls:'c-b', isCases:true, sub:'Day '+_wGone+' · 19/day per rep (bi-weekly 110×2)'})
+    +tgtCard('Outlets Visited', ovRegActual, ovRegTarget, {valCls:'c-b', isCases:true, sub:'Day '+_wGone+' pace · '+(regName==='Key Acct'?'120':'220')+'/rep monthly target'})
     +'<div class="kc"><div class="kc-lbl">Customers Sold To</div><div class="kc-val">'+fn(rd.soldCount)+'</div></div>'
     +'<div class="kc p"><div class="kc-lbl">Drop Size</div><div class="kc-val c-p">'+(rd.soldCount>0?(rd.cases/rd.soldCount).toFixed(1):'-')+' cs</div><div class="kc-sub">Avg cases per customer</div></div>'
     +'<div class="kc p"><div class="kc-lbl">Conversion Rate</div><div class="kc-val c-p">'+fp(rd.conv)+'</div></div>'
@@ -4603,8 +4612,8 @@ function renderASM(){
       +'<td>'+fn(a.soldCount)+'</td>'
       +'<td style="color:var(--amb)">'+(a.dropSize>0?a.dropSize.toFixed(1)+' cs':'—')+'</td>'
       +(function(){
-          var _wG3=(_I2&&_I2.workDaysGone)||1;
-          var ovT3=19*_wG3*a.reps;
+          var _monthlyTgt3=repOutletTarget(a.region)*a.reps; // 220 or 120 × active reps
+          var ovT3=_monthlyTgt3;
           var vp3=ovT3>0?Math.min(a.outletCount/ovT3*100,999):null;
           var vc3=vp3===null?'var(--dim)':vp3>=90?'var(--grn)':vp3>=60?'var(--amb)':'var(--red)';
           var bw3=vp3===null?0:Math.min(vp3,100);
@@ -4656,8 +4665,7 @@ function renderASM(){
             +'<td>'+fn(r.cases)+'</td>'
             +'<td style="color:var(--blu);font-weight:800">'+fn(r.outletCount)+'</td>'
             +(function(){
-                var _wG2=(_I2&&_I2.workDaysGone)||1;
-                var ovT=19*_wG2;
+                var ovT=repOutletTarget(r.region); // 220 or 120 flat monthly target
                 var vp=ovT>0?Math.min(r.outletCount/ovT*100,999):null;
                 var vc=vp===null?'var(--dim)':vp>=90?'var(--grn)':vp>=60?'var(--amb)':'var(--red)';
                 var bw=vp===null?0:Math.min(vp,100);
@@ -4799,15 +4807,7 @@ function renderDB(){
             +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);letter-spacing:1px;text-transform:uppercase">Reps</div>'
             +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:var(--blu)">'+repsSorted.length+'</div>'
           +'</div>'
-          +'<div style="text-align:right">'
-            +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);letter-spacing:1px;text-transform:uppercase">Share</div>'
-            +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:var(--pur)">'+share+'%</div>'
-          +'</div>'
         +'</div>'
-      +'</div>'
-      // Progress bar for share
-      +'<div style="height:3px;background:var(--bdr);margin:0;border-radius:0">'
-        +'<div style="width:'+Math.min(share,100)+'%;height:100%;background:'+rgnColor+';border-radius:0;transition:width .4s ease"></div>'
       +'</div>'
       // Rep table
       +'<div style="overflow-x:auto">'
