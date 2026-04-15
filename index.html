@@ -1121,7 +1121,13 @@ th{ padding:11px 16px; }
 <!-- ASM SCORECARD -->
 <div id="view-db" class="view">
   <div id="db-body" style="padding:24px 32px;max-width:1600px;margin:0 auto">
-    <div class="sec-label" style="margin-bottom:16px"><span style="color:var(--blu)">▪</span> DB Performance</div>
+    <div class="sec-label" style="margin-bottom:16px;display:flex;align-items:center;flex-wrap:wrap;gap:10px">
+      <span><span style="color:var(--blu)">▪</span> DB Performance</span>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        <button id="db-dl-csv" onclick="exportDBAll('csv')" style="display:none;padding:6px 14px;background:var(--grnd);border:1px solid rgba(0,229,160,.35);border-radius:8px;color:var(--grn);font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:1px;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(0,229,160,.18)'" onmouseout="this.style.background='var(--grnd)'">⬇ CSV ALL</button>
+        <button id="db-dl-xl" onclick="exportDBAll('excel')" style="display:none;padding:6px 14px;background:var(--ambd);border:1px solid rgba(245,166,35,.35);border-radius:8px;color:var(--amb);font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:1px;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(245,166,35,.18)'" onmouseout="this.style.background='var(--ambd)'">⬇ EXCEL ALL</button>
+      </div>
+    </div>
     <div id="db-filters" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px"></div>
     <div id="db-content"></div>
   </div>
@@ -4841,6 +4847,105 @@ function renderDB(){
 
   html += '</div>';
   document.getElementById('db-content').innerHTML = html;
+
+  // Show Download All buttons now that data is rendered
+  document.getElementById('db-dl-csv').style.display = '';
+  document.getElementById('db-dl-xl').style.display  = '';
+}
+
+/* ── Export ALL distributors as a flat table (CSV or Excel) ── */
+function exportDBAll(format){
+  if(!D || !D.dbMap){ toast('⚠ No data to export'); return; }
+  const fm2=function(n){return n>=1e6?'₦'+(n/1e6).toFixed(1)+'M':n>=1e3?'₦'+(n/1e3).toFixed(0)+'K':'₦'+Math.round(n).toLocaleString();};
+  const fn2=function(n){return n==null?'':Number(n).toLocaleString();};
+  const wdGone=(D.intel&&D.intel.workDaysGone)||1;
+
+  // Header row
+  const header = ['DB Name','Code','Region','Rep Name','ASM','Revenue','Cases Sold','Avg Rev/Day','Share of DB %','Opening Stock','Shipment In','Closing Stock','Stock Status'];
+
+  const rows = [header];
+
+  // Collect all DBs (no region filter for "export all")
+  const allDbs = Object.entries(D.dbMap)
+    .map(function([code,d]){ return Object.assign({},d,{code:code}); })
+    .filter(function(d){ return d.revenue > 0; })
+    .sort(function(a,b){ return b.revenue - a.revenue; });
+
+  const totalRev = allDbs.reduce(function(s,d){return s+d.revenue;},0);
+
+  allDbs.forEach(function(db){
+    const sdAll = D.stockData||{};
+    const dbNameL = (db.name||'').toLowerCase();
+    let stockEntry = sdAll[db.code]||null;
+    if(!stockEntry) stockEntry = Object.values(sdAll).find(function(e){
+      return (e.name||'').toLowerCase()===dbNameL||(e.code||'')===(db.code||'');
+    })||null;
+    const prevWeek   = stockEntry?stockEntry.totalPrev:null;
+    const shipment   = stockEntry?stockEntry.totalShip:null;
+    const closingStock = prevWeek!==null ? (prevWeek+(shipment||0))-db.cases : null;
+    const stockStatus  = stockEntry?stockEntry.status:'';
+
+    const repsSorted = Object.entries(db.repRevs||{})
+      .map(function([code,r]){ return Object.assign({},r,{code:code}); })
+      .sort(function(a,b){ return b.revenue-a.revenue; });
+
+    const totalRepRev = repsSorted.reduce(function(s,r){return s+r.revenue;},0)||1;
+
+    if(repsSorted.length===0){
+      rows.push([
+        db.name||'', db.code||'', db.region||'', '—', '—',
+        fn2(db.revenue), fn2(db.cases), '',
+        ((db.revenue/totalRev)*100).toFixed(1),
+        prevWeek!==null?fn2(prevWeek):'',
+        shipment!==null?fn2(shipment):'',
+        closingStock!==null?fn2(closingStock):'',
+        stockStatus
+      ]);
+    } else {
+      repsSorted.forEach(function(r, ri){
+        const repShare = ((r.revenue/totalRepRev)*100).toFixed(1);
+        const avgDay   = Math.round(r.revenue/wdGone);
+        rows.push([
+          ri===0?(db.name||''):'',
+          ri===0?(db.code||''):'',
+          ri===0?(db.region||''):'',
+          r.name||r.code||'',
+          r.asm||'',
+          fn2(r.revenue),
+          fn2(r.cases),
+          fm2(avgDay)+'/day',
+          repShare,
+          ri===0&&prevWeek!==null?fn2(prevWeek):'',
+          ri===0&&shipment!==null?fn2(shipment):'',
+          ri===0&&closingStock!==null?fn2(closingStock):'',
+          ri===0?stockStatus:''
+        ]);
+      });
+    }
+  });
+
+  const fname = _expFilename('db-performance-all'+(dbRgnFilter?'-'+dbRgnFilter.toLowerCase():''));
+
+  if(format==='csv'){
+    const lines = rows.map(function(row){
+      return row.map(function(c){
+        const t=String(c==null?'':c).replace(/\n/g,' ').trim();
+        return (t.includes(',')||t.includes('"'))?'"'+t.replace(/"/g,'""')+'"':t;
+      }).join(',');
+    });
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'}));
+    a.download=fname+'.csv'; a.click();
+    toast('📥 CSV saved — '+fname+'.csv');
+  } else {
+    if(typeof XLSX==='undefined'){toast('⚠ Export unavailable');return;}
+    const ws=XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols']=(rows[0]||[]).map(function(_,ci){return {wch:Math.max(...rows.map(function(r){return (r[ci]||'').length;}),8)};});
+    const wb2=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb2,ws,'DB Performance');
+    XLSX.writeFile(wb2,fname+'.xlsx');
+    toast('📊 Excel saved — '+fname+'.xlsx');
+  }
 }
 
 /* ═══════════════════════════ STOCK TRACKER ══════════════════════ */
@@ -4948,6 +5053,73 @@ function renderStock(){
     +(expCount>0?'<div class="kc r"><div class="kc-lbl">Near Expiry</div><div class="kc-val c-r">'+expCount+'</div><div class="kc-sub">DBs with expiry risk</div></div>':'')
     +'<div class="kc"><div class="kc-lbl">Distributors</div><div class="kc-val c-p">'+entries.length+'</div><div class="kc-sub">'+(stockRegionFilter||'All regions')+'</div></div>'
     +'</div>';
+
+  // ── SKU TOTALS DASHBOARD ──
+  const skuTotals = {};
+  SKUS.forEach(function(s){
+    skuTotals[s]={prev:0,ship:0,total:0,sellout:0,closing:0};
+  });
+  entries.forEach(function(e){
+    SKUS.forEach(function(s){
+      const sk=e.skus[s]||{prev:0,ship:0,total:0,sellout:0,closing:0};
+      const soldEntry=sold[e.code]||{};
+      const sv=soldEntry[s]>0?soldEntry[s]:sk.sellout;
+      const cl=sk.total-sv;
+      skuTotals[s].prev    += sk.prev||0;
+      skuTotals[s].ship    += sk.ship||0;
+      skuTotals[s].total   += sk.total||0;
+      skuTotals[s].sellout += sv||0;
+      skuTotals[s].closing += cl||0;
+    });
+  });
+  const SKU_COLORS = ['var(--grn)','var(--blu)','var(--pur)','var(--amb)','var(--red)','#00b87d'];
+  const maxClosing = Math.max(...SKUS.map(function(s){return Math.max(skuTotals[s].closing,0);}),1);
+
+  html += '<div style="margin-bottom:24px">'
+    +'<div style="font-family:var(--fm);font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:10px">📦 SKU Totals Dashboard'+(stockRegionFilter?' — '+stockRegionFilter:'')+'</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px">';
+
+  SKUS.forEach(function(s,si){
+    const sk=skuTotals[s];
+    const col=SKU_COLORS[si%SKU_COLORS.length];
+    const closingColor=sk.closing<0?'var(--red)':sk.closing<50?'var(--amb)':col;
+    const barW=maxClosing>0?Math.min(Math.max(sk.closing,0)/maxClosing*100,100).toFixed(1):0;
+    html += '<div style="background:var(--s1);border:1px solid var(--bdr);border-radius:var(--r);padding:16px 18px;position:relative;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.2)">'
+      +'<div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,'+col+',transparent)"></div>'
+      +'<div style="position:absolute;top:0;left:0;bottom:0;width:3px;background:'+col+';opacity:.5"></div>'
+      +'<div style="font-family:var(--fm);font-size:10px;letter-spacing:1.5px;color:'+col+';text-transform:uppercase;font-weight:700;margin-bottom:10px">'+s+'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
+        +'<div>'
+          +'<div style="font-family:var(--fm);font-size:8px;color:var(--dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px">Opening</div>'
+          +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:var(--blu)">'+fn(sk.prev)+'</div>'
+        +'</div>'
+        +'<div>'
+          +'<div style="font-family:var(--fm);font-size:8px;color:var(--dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px">Shipped</div>'
+          +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:var(--pur)">'+fn(sk.ship)+'</div>'
+        +'</div>'
+        +'<div>'
+          +'<div style="font-family:var(--fm);font-size:8px;color:var(--dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px">Sold</div>'
+          +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:var(--amb)">'+fn(sk.sellout)+'</div>'
+        +'</div>'
+        +'<div>'
+          +'<div style="font-family:var(--fm);font-size:8px;color:var(--dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px">Closing</div>'
+          +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:'+closingColor+'">'+fn(sk.closing)+'</div>'
+        +'</div>'
+      +'</div>'
+      // Mini progress bar — closing vs opening
+      +'<div style="margin-top:6px">'
+        +'<div style="display:flex;justify-content:space-between;margin-bottom:3px">'
+          +'<span style="font-family:var(--fm);font-size:8px;color:var(--dim)">Closing stock %</span>'
+          +'<span style="font-family:var(--fm);font-size:8px;font-weight:700;color:'+closingColor+'">'+barW+'%</span>'
+        +'</div>'
+        +'<div style="height:4px;background:var(--s3);border-radius:3px;overflow:hidden">'
+          +'<div style="width:'+barW+'%;height:100%;background:'+closingColor+';border-radius:3px;transition:width .5s ease"></div>'
+        +'</div>'
+      +'</div>'
+    +'</div>';
+  });
+
+  html += '</div></div>';
 
   // ── SEARCH BAR ──
   html += '<div style="margin-bottom:18px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
