@@ -1123,9 +1123,10 @@ th{ padding:11px 16px; }
   <div id="db-body" style="padding:24px 32px;max-width:1600px;margin:0 auto">
     <div class="sec-label" style="margin-bottom:16px;display:flex;align-items:center;flex-wrap:wrap;gap:10px">
       <span><span style="color:var(--blu)">▪</span> DB Performance</span>
-      <div style="margin-left:auto;display:flex;gap:6px">
+      <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <button id="db-dl-csv" onclick="exportDBAll('csv')" style="display:none;padding:6px 14px;background:var(--grnd);border:1px solid rgba(0,229,160,.35);border-radius:8px;color:var(--grn);font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:1px;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(0,229,160,.18)'" onmouseout="this.style.background='var(--grnd)'">⬇ CSV ALL</button>
         <button id="db-dl-xl" onclick="exportDBAll('excel')" style="display:none;padding:6px 14px;background:var(--ambd);border:1px solid rgba(245,166,35,.35);border-radius:8px;color:var(--amb);font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:1px;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(245,166,35,.18)'" onmouseout="this.style.background='var(--ambd)'">⬇ EXCEL ALL</button>
+        <div id="db-rgn-dl" style="display:none;gap:5px;flex-wrap:wrap;align-items:center;border-left:1px solid var(--bdr);padding-left:8px;margin-left:4px"></div>
       </div>
     </div>
     <div id="db-filters" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px"></div>
@@ -4813,6 +4814,7 @@ function renderDB(){
             +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);letter-spacing:1px;text-transform:uppercase">Reps</div>'
             +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:var(--blu)">'+repsSorted.length+'</div>'
           +'</div>'
+          +'<button onclick="exportDBSingle(\''+db.code.replace(/'/g,"\\'")+'\')" style="padding:5px 11px;background:var(--blub);border:1px solid rgba(61,158,255,.35);border-radius:7px;color:var(--blu);font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:.5px;cursor:pointer;white-space:nowrap;transition:all .2s" onmouseover="this.style.background=\'rgba(61,158,255,.2)\'" onmouseout="this.style.background=\'var(--blub)\'">⬇ EXPORT</button>'
         +'</div>'
       +'</div>'
       // Rep table
@@ -4851,80 +4853,57 @@ function renderDB(){
   // Show Download All buttons now that data is rendered
   document.getElementById('db-dl-csv').style.display = '';
   document.getElementById('db-dl-xl').style.display  = '';
+
+  // Build per-region download buttons
+  const rgnDlEl = document.getElementById('db-rgn-dl');
+  if(rgnDlEl && allRegions.length > 0){
+    rgnDlEl.style.display = 'flex';
+    rgnDlEl.innerHTML = '<span style="font-family:var(--fm);font-size:9px;color:var(--dim);letter-spacing:1px;white-space:nowrap">BY REGION:</span>'
+      + allRegions.map(function(r){
+          const col = RC[r.toUpperCase()] || 'var(--blu)';
+          return '<button onclick="exportDBAll(\'excel\',\''+r.replace(/'/g,"\\'")+'\')" '
+            +'style="padding:4px 10px;border-radius:7px;cursor:pointer;font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:.5px;'
+            +'border:1px solid '+col+'55;background:'+col+'11;color:'+col+';white-space:nowrap;transition:all .2s" '
+            +'onmouseover="this.style.background=\''+col+'22\'" onmouseout="this.style.background=\''+col+'11\'">⬇ '+r+'</button>';
+        }).join('');
+  }
 }
 
 /* ── Export ALL distributors as a flat table (CSV or Excel) ── */
-function exportDBAll(format){
+/* regionOverride: if provided, export only that region */
+function exportDBAll(format, regionOverride){
   if(!D || !D.dbMap){ toast('⚠ No data to export'); return; }
-  const fm2=function(n){return n>=1e6?'₦'+(n/1e6).toFixed(1)+'M':n>=1e3?'₦'+(n/1e3).toFixed(0)+'K':'₦'+Math.round(n).toLocaleString();};
   const fn2=function(n){return n==null?'':Number(n).toLocaleString();};
-  const wdGone=(D.intel&&D.intel.workDaysGone)||1;
 
-  // Header row
-  const header = ['DB Name','Code','Region','Rep Name','ASM','Revenue','Cases Sold','Avg Rev/Day','Share of DB %','Opening Stock','Shipment In','Closing Stock','Stock Status'];
-
+  // Header row — simplified to key fields only
+  const header = ['DB Name','Code','Region','Total Revenue','Total Cases Sold'];
   const rows = [header];
 
-  // Collect all DBs (no region filter for "export all")
+  // Determine which region filter applies
+  const activeRegion = regionOverride !== undefined ? regionOverride : dbRgnFilter;
+
+  // Collect DBs, filtered by region if specified
   const allDbs = Object.entries(D.dbMap)
     .map(function([code,d]){ return Object.assign({},d,{code:code}); })
-    .filter(function(d){ return d.revenue > 0; })
+    .filter(function(d){
+      if(!d.revenue) return false;
+      if(activeRegion) return (d.region||'').toUpperCase() === activeRegion.toUpperCase();
+      return true;
+    })
     .sort(function(a,b){ return b.revenue - a.revenue; });
 
-  const totalRev = allDbs.reduce(function(s,d){return s+d.revenue;},0);
-
   allDbs.forEach(function(db){
-    const sdAll = D.stockData||{};
-    const dbNameL = (db.name||'').toLowerCase();
-    let stockEntry = sdAll[db.code]||null;
-    if(!stockEntry) stockEntry = Object.values(sdAll).find(function(e){
-      return (e.name||'').toLowerCase()===dbNameL||(e.code||'')===(db.code||'');
-    })||null;
-    const prevWeek   = stockEntry?stockEntry.totalPrev:null;
-    const shipment   = stockEntry?stockEntry.totalShip:null;
-    const closingStock = prevWeek!==null ? (prevWeek+(shipment||0))-db.cases : null;
-    const stockStatus  = stockEntry?stockEntry.status:'';
-
-    const repsSorted = Object.entries(db.repRevs||{})
-      .map(function([code,r]){ return Object.assign({},r,{code:code}); })
-      .sort(function(a,b){ return b.revenue-a.revenue; });
-
-    const totalRepRev = repsSorted.reduce(function(s,r){return s+r.revenue;},0)||1;
-
-    if(repsSorted.length===0){
-      rows.push([
-        db.name||'', db.code||'', db.region||'', '—', '—',
-        fn2(db.revenue), fn2(db.cases), '',
-        ((db.revenue/totalRev)*100).toFixed(1),
-        prevWeek!==null?fn2(prevWeek):'',
-        shipment!==null?fn2(shipment):'',
-        closingStock!==null?fn2(closingStock):'',
-        stockStatus
-      ]);
-    } else {
-      repsSorted.forEach(function(r, ri){
-        const repShare = ((r.revenue/totalRepRev)*100).toFixed(1);
-        const avgDay   = Math.round(r.revenue/wdGone);
-        rows.push([
-          ri===0?(db.name||''):'',
-          ri===0?(db.code||''):'',
-          ri===0?(db.region||''):'',
-          r.name||r.code||'',
-          r.asm||'',
-          fn2(r.revenue),
-          fn2(r.cases),
-          fm2(avgDay)+'/day',
-          repShare,
-          ri===0&&prevWeek!==null?fn2(prevWeek):'',
-          ri===0&&shipment!==null?fn2(shipment):'',
-          ri===0&&closingStock!==null?fn2(closingStock):'',
-          ri===0?stockStatus:''
-        ]);
-      });
-    }
+    rows.push([
+      db.name  || '',
+      db.code  || '',
+      db.region|| '',
+      fn2(db.revenue),
+      fn2(db.cases)
+    ]);
   });
 
-  const fname = _expFilename('db-performance-all'+(dbRgnFilter?'-'+dbRgnFilter.toLowerCase():''));
+  const regionLabel = activeRegion ? '-'+activeRegion.toLowerCase().replace(/\s+/g,'-') : '-all';
+  const fname = _expFilename('db-performance'+regionLabel);
 
   if(format==='csv'){
     const lines = rows.map(function(row){
@@ -4942,13 +4921,80 @@ function exportDBAll(format){
     const ws=XLSX.utils.aoa_to_sheet(rows);
     ws['!cols']=(rows[0]||[]).map(function(_,ci){return {wch:Math.max(...rows.map(function(r){return (r[ci]||'').length;}),8)};});
     const wb2=XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb2,ws,'DB Performance');
+    const sheetName = activeRegion ? activeRegion.slice(0,31) : 'DB Performance';
+    XLSX.utils.book_append_sheet(wb2,ws,sheetName);
     XLSX.writeFile(wb2,fname+'.xlsx');
     toast('📊 Excel saved — '+fname+'.xlsx');
   }
 }
 
-/* ═══════════════════════════ STOCK TRACKER ══════════════════════ */
+/* ── Export a SINGLE distributor with full rep breakdown (Excel only) ── */
+function exportDBSingle(dbCode){
+  if(!D || !D.dbMap){ toast('⚠ No data to export'); return; }
+  const db = D.dbMap[dbCode];
+  if(!db){ toast('⚠ Distributor not found'); return; }
+
+  const fn2 = function(n){ return n==null?'':Number(n).toLocaleString(); };
+  const fm2 = function(n){ return n==null?'':Number(n).toLocaleString(); };
+  const wdGone = (D.intel&&D.intel.workDaysGone)||1;
+
+  const rows = [];
+
+  // ── Summary header block ──
+  rows.push(['DB Name', db.name||dbCode]);
+  rows.push(['Code',    dbCode]);
+  rows.push(['Region',  db.region||'']);
+  rows.push(['Total Revenue', fn2(db.revenue)]);
+  rows.push(['Total Cases Sold', fn2(db.cases)]);
+
+  // Stock info if available
+  const sdAll = (D.stockData)||{};
+  let stockEntry = sdAll[dbCode] || Object.values(sdAll).find(function(e){
+    return (e.name||'').toLowerCase()===(db.name||'').toLowerCase() || (e.code||'')===dbCode;
+  }) || null;
+  if(stockEntry){
+    rows.push(['Opening Stock', fn2(stockEntry.totalPrev)]);
+    rows.push(['Shipment In',   fn2(stockEntry.totalShip)]);
+    rows.push(['Total Stock',   fn2(stockEntry.totalStock)]);
+    rows.push(['Closing Stock', fn2(stockEntry.totalStock - db.cases)]);
+  }
+
+  rows.push([]); // blank separator
+
+  // ── Rep breakdown ──
+  rows.push(['#','Rep Name','ASM','Revenue','Cases Sold','Share of DB %','Avg Revenue/Day']);
+  const repsSorted = Object.entries(db.repRevs||{})
+    .map(function([code,r]){ return Object.assign({},r,{code:code}); })
+    .sort(function(a,b){ return b.revenue - a.revenue; });
+  const totalRepRev = repsSorted.reduce(function(s,r){return s+r.revenue;},0);
+
+  repsSorted.forEach(function(r,i){
+    const share = totalRepRev>0 ? (r.revenue/totalRepRev*100).toFixed(1) : '0.0';
+    const avgDay = Math.round(r.revenue / wdGone);
+    rows.push([
+      i+1,
+      r.name||r.code,
+      r.asm||'',
+      fn2(r.revenue),
+      fn2(r.cases),
+      share+'%',
+      fn2(avgDay)
+    ]);
+  });
+
+  const fname = _expFilename('db-'+((db.name||dbCode).replace(/\s+/g,'-').toLowerCase()));
+  if(typeof XLSX==='undefined'){ toast('⚠ Export unavailable'); return; }
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = (rows[0]||[]).map(function(_,ci){
+    return {wch: Math.max(...rows.map(function(r){ return String(r[ci]||'').length; }),10)};
+  });
+  const wb2 = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb2, ws, (db.name||dbCode).slice(0,31));
+  XLSX.writeFile(wb2, fname+'.xlsx');
+  toast('📊 Exported — '+fname+'.xlsx');
+}
+
+
 let stockSearchTerm = '';
 let stockRegionFilter = null; // active region slicer value
 
@@ -5057,22 +5103,54 @@ function renderStock(){
   // ── SKU TOTALS DASHBOARD ──
   const skuTotals = {};
   SKUS.forEach(function(s){
-    skuTotals[s]={prev:0,ship:0,total:0,sellout:0,closing:0};
+    skuTotals[s]={prev:0,ship:0,total:0,sellout:0,closing:0,monthlySales:0};
   });
+
+  // Pull actual team sales cases from D.intel — same data feeding Brand Performance & all other modules
+  // Map Stock SKU names → Intel brand names
+  const SKU_TO_BRAND = {
+    'Frutta 1ltr': 'Frutta 1ltr',
+    'Maccaw':      'Maccaw',
+    'PET 35 CL':   'PET 35CL',
+    'PET 50 CL':   'PET 50CL',
+    'Cal':         'California'
+  };
+
+  const intelBrands    = (D.intel && D.intel.brands)      || {};
+  const intelBrandByRgn= (D.intel && D.intel.brandByRgn)  || {};
+
+  SKUS.forEach(function(s){
+    const brandKey = SKU_TO_BRAND[s];
+    if(!brandKey) return;
+    const globalBrand = intelBrands[brandKey] || {revenue:0, cases:0};
+
+    if(stockRegionFilter){
+      // brandByRgn stores revenue — scale to cases using global brand ratio
+      const rgnRev    = (intelBrandByRgn[stockRegionFilter] || {})[brandKey] || 0;
+      const globalRev = globalBrand.revenue || 0;
+      if(globalRev > 0 && rgnRev > 0){
+        skuTotals[s].monthlySales = Math.round(rgnRev / globalRev * globalBrand.cases);
+      }
+    } else {
+      // No region filter — use exact team total cases for this brand
+      skuTotals[s].monthlySales = globalBrand.cases || 0;
+    }
+  });
+
   entries.forEach(function(e){
     SKUS.forEach(function(s){
       const sk=e.skus[s]||{prev:0,ship:0,total:0,sellout:0,closing:0};
-      const soldEntry=sold[e.code]||{};
-      const sv=soldEntry[s]>0?soldEntry[s]:sk.sellout;
-      const cl=sk.total-sv;
       skuTotals[s].prev    += sk.prev||0;
       skuTotals[s].ship    += sk.ship||0;
       skuTotals[s].total   += sk.total||0;
-      skuTotals[s].sellout += sv||0;
-      skuTotals[s].closing += cl||0;
     });
   });
+  // Closing = Total Stock − Sales This Month (from intel/transaction data)
+  SKUS.forEach(function(s){
+    skuTotals[s].closing = skuTotals[s].total - skuTotals[s].monthlySales;
+  });
   const SKU_COLORS = ['var(--grn)','var(--blu)','var(--pur)','var(--amb)','var(--red)','#00b87d'];
+  // maxClosing computed after closing = total - monthlySales is set above
   const maxClosing = Math.max(...SKUS.map(function(s){return Math.max(skuTotals[s].closing,0);}),1);
 
   html += '<div style="margin-bottom:24px">'
@@ -5098,15 +5176,15 @@ function renderStock(){
           +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:var(--pur)">'+fn(sk.ship)+'</div>'
         +'</div>'
         +'<div>'
-          +'<div style="font-family:var(--fm);font-size:8px;color:var(--dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px">Sold</div>'
-          +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:var(--amb)">'+fn(sk.sellout)+'</div>'
+          +'<div style="font-family:var(--fm);font-size:8px;color:var(--grn);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px">Sales This Month</div>'
+          +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:var(--grn)">'+fn(sk.monthlySales)+'</div>'
         +'</div>'
         +'<div>'
           +'<div style="font-family:var(--fm);font-size:8px;color:var(--dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px">Closing</div>'
           +'<div style="font-family:var(--fn);font-size:16px;font-weight:800;color:'+closingColor+'">'+fn(sk.closing)+'</div>'
         +'</div>'
       +'</div>'
-      // Mini progress bar — closing vs opening
+      // Mini progress bar — closing vs total stock
       +'<div style="margin-top:6px">'
         +'<div style="display:flex;justify-content:space-between;margin-bottom:3px">'
           +'<span style="font-family:var(--fm);font-size:8px;color:var(--dim)">Closing stock %</span>'
