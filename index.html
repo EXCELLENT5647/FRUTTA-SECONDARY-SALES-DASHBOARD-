@@ -1747,25 +1747,59 @@ function parseWB(wb){
 
   /* ═══════════════════════════════════════════════════════════════
      STEP 0: Resource Alignment — pre-build numeric code → KAT login bridge
-     Cols: [salesman_code, fulname, region_description, Designation, Login ID, ASM, ...]
-     KA reps use numeric salesman_code (e.g. 1238) but KAT* login IDs (e.g. KATEE1238)
+     Actual cols: [Salesman_code, Fullname, region_description, Designation,
+                   Login ID, DB Code, DB Name, ASM, ...]
+     All column positions detected by header name — not hardcoded.
   ═══════════════════════════════════════════════════════════════ */
   const wsRA = wb.Sheets['Resource Alignment'];
+
+  /* ── Declare dbMap outside so it is always in scope ── */
+  const dbMap    = {};  // dbCode → {name, reps:[loginId,...], region, revenue, cases, repRevs}
+  const loginToDb = {}; // loginId / salesman_code → dbCode
+
   if(wsRA){
     const raRows = XLSX.utils.sheet_to_json(wsRA, {header:1, defval:null});
+
+    /* ── 1. Find header row (the row that contains "ASM" or "Login") ── */
+    let raHdrRow = 0;
+    for(let i=0; i<Math.min(raRows.length,5); i++){
+      const r = raRows[i];
+      if(r && r.some(c => c && /^(asm|login)/i.test(String(c).trim()))){
+        raHdrRow = i; break;
+      }
+    }
+    const raHdr = raRows[raHdrRow] || [];
+
+    /* ── 2. Detect every column by its header keyword ── */
+    function raCol(fallback, ...kws){ const i=colIdx(raHdr,...kws); return i>=0?i:fallback; }
+    const raColSc    = raCol(0, 'salesman_code','salesman code','sc');
+    const raColName  = raCol(1, 'fulname','fullname','full name','name');
+    const raColRgn   = raCol(2, 'region');
+    const raColLogin = raCol(4, 'login');
+    const raColDb    = raCol(5, 'db code','distributor code','dist code','distrib');
+    const raColDbNm  = raCol(6, 'db name','distributor name','dist name');
+    const raColAsm   = raCol(7, 'asm');   // ASM is after DB Code / DB Name in this sheet
+
+    /* ── 3. Single pass: fill loginToASM, loginToName, bridges AND dbMap ── */
     for(let i=0; i<raRows.length; i++){
+      if(i === raHdrRow) continue;          // skip header row
       const row = raRows[i];
-      if(!row || !row[0]) continue;
-      const sc    = String(row[0]).trim();   // salesman_code (may be numeric string)
-      const name  = String(row[1]||'').trim();
-      const rgn   = normRgn(String(row[2]||''));
-      const login = String(row[4]||'').trim();  // Login ID e.g. KATEE1238
-      const asm   = cleanAsm(String(row[5]||''));
+      if(!row || !row[raColSc]) continue;
+      const sc    = String(row[raColSc]).trim();
       if(!sc || sc.toLowerCase()==='salesman_code' || sc.startsWith('=')) continue;
-      // Always store name/ASM against the numeric salesman_code — covers ALL reps not just KA
+
+      const name   = String(row[raColName]  ||'').trim();
+      const rgn    = normRgn(String(row[raColRgn]||''));
+      const login  = String(row[raColLogin] ||'').trim();
+      const asm    = cleanAsm(String(row[raColAsm] ||''));
+      const dbCode = String(row[raColDb]    ||'').trim();
+      const dbName = String(row[raColDbNm]  ||'').trim();
+
+      /* — loginToASM / loginToName against salesman_code — */
       if(name) loginToName[sc] = loginToName[sc] || name;
       if(asm)  loginToASM[sc]  = loginToASM[sc]  || asm;
-      // Also store against numeric-only portion of login (e.g. login=NORSR1079 → store '1079')
+
+      /* — numeric suffix of login (e.g. NORSR1079 → '1079') — */
       if(login){
         const lSuffix = login.replace(/^[A-Z]+/i,'');
         if(lSuffix && /\d/.test(lSuffix) && lSuffix !== sc){
@@ -1773,48 +1807,30 @@ function parseWB(wb){
           if(asm)  loginToASM[lSuffix]  = loginToASM[lSuffix]  || asm;
           loginToCode[lSuffix] = loginToCode[lSuffix] || login;
         }
+        if(rgnFromCode(login)){
+          numericToLogin[sc]   = login;
+          loginToASM[login]    = loginToASM[login]  || asm;
+          loginToName[login]   = loginToName[login] || name;
+          codeToLogin[sc]      = codeToLogin[sc]    || login;
+          loginToCode[login]   = loginToCode[login] || sc;
+        } else {
+          codeToLogin[sc]      = codeToLogin[sc]    || login;
+          loginToCode[login]   = loginToCode[login] || sc;
+          loginToASM[login]    = loginToASM[login]  || asm;
+          loginToName[login]   = loginToName[login] || name;
+          if(rgnFromCode(login)) numericToLogin[sc] = login;
+        }
       }
-      if(login && rgnFromCode(login)){
-        // Bridge: numeric salesman code → KAT login (KA reps)
-        numericToLogin[sc] = login;
-        // Also register into lookup tables
-        loginToASM[login]  = loginToASM[login]  || asm;
-        loginToName[login] = loginToName[login] || name;
-        codeToLogin[sc]    = codeToLogin[sc]    || login;
-        loginToCode[login] = loginToCode[login] || sc;
-      } else if(login){
-        // Non-KA reps: login may be like NORSR1079 — still bridge it
-        codeToLogin[sc]    = codeToLogin[sc]    || login;
-        loginToCode[login] = loginToCode[login] || sc;
-        loginToASM[login]  = loginToASM[login]  || asm;
-        loginToName[login] = loginToName[login] || name;
-        if(rgnFromCode(login)) numericToLogin[sc] = login;
-      }
-    }
-  }
 
-
-  /* ── Build dbMap: login → {dbCode, dbName} from Resource Alignment ── */
-  const dbMap = {};       // dbCode → {name, reps:[loginId,...], region}
-  const loginToDb = {};   // loginId → dbCode
-  if(wsRA){
-    const raRows2 = XLSX.utils.sheet_to_json(wsRA, {header:1, defval:null});
-    for(let i=1; i<raRows2.length; i++){
-      const row = raRows2[i];
-      if(!row || !row[4]) continue;
-      const login  = String(row[4]||'').trim();
-      const dbCode = String(row[5]||'').trim();
-      const dbName = String(row[6]||'').trim();
-      const region = normRgn(String(row[2]||''));
-      if(!login || !dbCode || dbCode==='#N/A' || dbCode.startsWith('=')) continue;
-      loginToDb[login] = dbCode;
-      // Also map numeric salesman_code
-      const sc = String(row[0]||'').trim();
-      if(sc) loginToDb[sc] = dbCode;
-      if(!dbMap[dbCode]){
-        dbMap[dbCode] = {name:dbName||dbCode, reps:[], region, revenue:0, cases:0, repRevs:{}};
+      /* — dbMap: only rows with a real DB code — */
+      if(dbCode && dbCode !== '#N/A' && !dbCode.startsWith('=')){
+        loginToDb[sc] = dbCode;
+        if(login) loginToDb[login] = dbCode;
+        if(!dbMap[dbCode]){
+          dbMap[dbCode] = {name:dbName||dbCode, reps:[], region:rgn, revenue:0, cases:0, repRevs:{}};
+        }
+        if(login && !dbMap[dbCode].reps.includes(login)) dbMap[dbCode].reps.push(login);
       }
-      if(!dbMap[dbCode].reps.includes(login)) dbMap[dbCode].reps.push(login);
     }
   }
 
