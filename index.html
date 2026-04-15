@@ -1796,28 +1796,30 @@ function parseWB(wb){
       const dbName = String(row[raColDbNm]  ||'').trim();
 
       /* — loginToASM / loginToName against salesman_code — */
-      if(name) loginToName[sc] = loginToName[sc] || name;
-      if(asm)  loginToASM[sc]  = loginToASM[sc]  || asm;
+      /* Resource Alignment is the AUTHORITATIVE source for ASM.           */
+      /* Always overwrite so stale Atte-sheet values never bleed through.  */
+      if(name) loginToName[sc] = name;
+      if(asm)  loginToASM[sc]  = asm;
 
       /* — numeric suffix of login (e.g. NORSR1079 → '1079') — */
       if(login){
         const lSuffix = login.replace(/^[A-Z]+/i,'');
         if(lSuffix && /\d/.test(lSuffix) && lSuffix !== sc){
-          if(name) loginToName[lSuffix] = loginToName[lSuffix] || name;
-          if(asm)  loginToASM[lSuffix]  = loginToASM[lSuffix]  || asm;
+          if(name) loginToName[lSuffix] = name;
+          if(asm)  loginToASM[lSuffix]  = asm;
           loginToCode[lSuffix] = loginToCode[lSuffix] || login;
         }
         if(rgnFromCode(login)){
           numericToLogin[sc]   = login;
-          loginToASM[login]    = loginToASM[login]  || asm;
-          loginToName[login]   = loginToName[login] || name;
+          loginToASM[login]    = asm;
+          loginToName[login]   = name;
           codeToLogin[sc]      = codeToLogin[sc]    || login;
           loginToCode[login]   = loginToCode[login] || sc;
         } else {
           codeToLogin[sc]      = codeToLogin[sc]    || login;
           loginToCode[login]   = loginToCode[login] || sc;
-          loginToASM[login]    = loginToASM[login]  || asm;
-          loginToName[login]   = loginToName[login] || name;
+          loginToASM[login]    = asm;
+          loginToName[login]   = name;
           if(rgnFromCode(login)) numericToLogin[sc] = login;
         }
       }
@@ -1894,13 +1896,14 @@ function parseWB(wb){
       if(!detectedRgn) continue;
 
       // Register id (login or code) into lookups
-      loginToASM[id]  = asm;
-      loginToName[id] = name;
+      // ASM: only fill if NOT already set by Resource Alignment (authoritative source)
+      if(!loginToASM[id])  loginToASM[id]  = asm;
+      if(!loginToName[id]) loginToName[id] = name;
 
       // If extraCode found and different from id, register it too
       if(extraCode && extraCode !== id && rgnFromCode(extraCode)){
-        loginToASM[extraCode]  = asm;
-        loginToName[extraCode] = name;
+        if(!loginToASM[extraCode])  loginToASM[extraCode]  = asm;
+        if(!loginToName[extraCode]) loginToName[extraCode] = name;
         // Bridge: if id is login-style and extraCode is sales-code-style
         if(!rgnFromCode(id) || id.length > extraCode.length){
           codeToLogin[extraCode] = id;
