@@ -1162,7 +1162,8 @@ th{ padding:11px 16px; }
       <div style="overflow-x:auto">
         <table><thead><tr>
           <th>#</th><th>ASM</th><th>Region</th><th>Reps</th>
-          <th>Team Revenue</th><th>Avg Rev/Rep</th><th>Cases</th>
+          <th>Team Revenue</th><th>Rev Target</th><th>Achieved %</th><th>Cases</th><th>Cases Target</th>
+          <th>Avg Rev/Rep</th>
           <th>Customers Sold</th><th>Drop Size</th><th>Outlets Met</th><th>Visit Target</th><th>Visit%</th><th>Compliance</th><th>Conv. Rate</th><th>Rev Share</th>
         </tr></thead>
         <tbody id="asm-tbl-body"></tbody></table>
@@ -4627,14 +4628,44 @@ function renderASM(){
     const rgnColor  = RC[a.region]||'var(--grn)';
     const share     = (a.revenue/totalRev*100).toFixed(1);
     const compColor = a.avgComp>=100?'var(--grn)':a.avgComp>=75?'var(--amb)':'var(--red)';
+
+    // ── Per-ASM targets: sum all reps in this ASM's repList ──
+    const T2 = D.targets || {};
+    const asmTargetCases = a.repList.reduce(function(s,r){return s+(r.targetCases||0);},0);
+    const asmTargetRev   = asmTargetCases>0 && T2.blendedPrice
+      ? Math.round(asmTargetCases * T2.blendedPrice) : 0;
+    const revAchPct = asmTargetRev>0 ? Math.min(a.revenue/asmTargetRev*100, 999) : null;
+    const casAchPct = asmTargetCases>0 ? Math.min(a.cases/asmTargetCases*100, 999) : null;
+    const achColor  = revAchPct===null?'var(--dim)':revAchPct>=100?'var(--grn)':revAchPct>=75?'var(--amb)':'var(--red)';
+    const achBarW   = revAchPct!==null ? Math.min(revAchPct,100).toFixed(1) : 0;
+
     return '<tr>'
       +'<td style="color:var(--dim)">'+(i+1)+'</td>'
       +'<td style="font-family:var(--fb);font-size:13px;font-weight:600;color:var(--pur)">'+a.name+'</td>'
       +'<td><span style="color:'+rgnColor+';font-family:var(--fn);font-weight:700;font-size:11px">'+a.region+'</span></td>'
       +'<td style="color:var(--blu);font-weight:700">'+a.reps+'</td>'
       +'<td style="color:var(--grn);font-weight:700">'+fm(a.revenue)+'</td>'
-      +'<td style="color:var(--pur)">'+fm(Math.round(a.avgRev))+'</td>'
+      // Rev Target
+      +'<td style="color:var(--dim);font-size:11px">'+(asmTargetRev>0?fm(asmTargetRev):'—')+'</td>'
+      // Achieved % with mini bar
+      +(revAchPct!==null
+        ?'<td><div style="display:flex;flex-direction:column;gap:3px;min-width:80px">'
+          +'<div style="display:flex;align-items:center;justify-content:space-between">'
+            +'<span style="font-family:var(--fn);font-size:13px;font-weight:800;color:'+achColor+'">'+revAchPct.toFixed(1)+'%</span>'
+          +'</div>'
+          +'<div style="width:100%;height:4px;background:var(--bdr);border-radius:2px;overflow:hidden">'
+            +'<div style="width:'+achBarW+'%;height:100%;background:'+achColor+';border-radius:2px;transition:width .4s"></div>'
+          +'</div>'
+        +'</div></td>'
+        :'<td style="color:var(--dim)">—</td>')
       +'<td>'+fn(a.cases)+'</td>'
+      // Cases Target + pct
+      +(asmTargetCases>0
+        ?'<td style="color:var(--dim);font-size:11px">'+fn(asmTargetCases)
+          +(casAchPct!==null?'<div style="font-family:var(--fn);font-size:10px;font-weight:700;color:'+achColor+';margin-top:2px">'+casAchPct.toFixed(1)+'%</div>':'')
+          +'</td>'
+        :'<td style="color:var(--dim)">—</td>')
+      +'<td style="color:var(--pur)">'+fm(Math.round(a.avgRev))+'</td>'
       +'<td>'+fn(a.soldCount)+'</td>'
       +'<td style="color:var(--amb)">'+(a.dropSize>0?a.dropSize.toFixed(1)+' cs':'—')+'</td>'
       +(function(){
