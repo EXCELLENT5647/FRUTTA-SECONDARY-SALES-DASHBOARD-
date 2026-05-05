@@ -1366,10 +1366,11 @@ const rgnFromLogin = rgnFromCode;
 function isManagerCode(code){
   if(!code) return false;
   const v = String(code).toUpperCase().trim();
-  // ASM codes contain "AS" anywhere (e.g. NORAS01, LAGAS02)
-  if(v.includes('AS')) return true;
-  // KA manager codes start with LM, NM, EM, WM (followed by digits or letters)
-  if(/^(LM|NM|EM|WM)/i.test(v)) return true;
+  // ASM codes: contain "AS" but NOT if it's part of a normal prefix like KASR, ESTSR, etc.
+  // Specifically: NORASxx, LAGASxx, ESTASxx, etc. — "AS" after a region prefix
+  if(v.includes('AS') && !/^KA(SR|LM|TE|TW)/i.test(v)) return true;
+  // KA manager codes start with LM, NM, EM, WM (NOT KALM — that's a rep)
+  if(/^(LM|NM|EM|WM)\d/i.test(v)) return true;
   return false;
 }
 
@@ -1827,14 +1828,32 @@ function parseWB(wb){
 
       /* — dbMap: only rows with a real DB code — */
       if(dbCode && dbCode !== '#N/A' && !dbCode.startsWith('=')){
-        loginToDb[sc] = dbCode;
-        if(login) loginToDb[login] = dbCode;
+        // Index by every possible key a sales row might use to look up this rep's DB
+        loginToDb[sc] = dbCode;                                          // e.g. '1249' or 'KALM1249'
+        if(login) loginToDb[login] = dbCode;                             // e.g. 'KALM1249'
+        // Numeric-only suffix of sc (e.g. 'KALM1249' → '1249')
+        const scSuffix = sc.replace(/^[A-Z]+/i,'');
+        if(scSuffix && /^\d+$/.test(scSuffix) && scSuffix !== sc) loginToDb[scSuffix] = dbCode;
+        // Numeric-only suffix of login (e.g. 'KALM1249' → '1249')
+        if(login){
+          const loginSuffix = login.replace(/^[A-Z]+/i,'');
+          if(loginSuffix && /^\d+$/.test(loginSuffix) && loginSuffix !== sc && loginSuffix !== scSuffix){
+            loginToDb[loginSuffix] = dbCode;
+          }
+        }
         if(!dbMap[dbCode]){
           dbMap[dbCode] = {name:dbName||dbCode, reps:[], region:rgn, revenue:0, cases:0, repRevs:{}};
         }
+        if(sc    && !dbMap[dbCode].reps.includes(sc))    dbMap[dbCode].reps.push(sc);
         if(login && !dbMap[dbCode].reps.includes(login)) dbMap[dbCode].reps.push(login);
+        if(scSuffix && scSuffix !== sc && !dbMap[dbCode].reps.includes(scSuffix)) dbMap[dbCode].reps.push(scSuffix);
       }
     }
+    console.log('[DB] loginToDb entries:', Object.keys(loginToDb).length, '| dbMap entries:', Object.keys(dbMap).length);
+    // Log first 20 loginToDb keys so you can verify in the console
+    console.log('[DB] Sample loginToDb keys:', Object.keys(loginToDb).slice(0,20));
+  } else {
+    console.warn('[DB] "Resource Alignment" sheet NOT found — DB Performance tab will be empty. Expected sheet name: "Resource Alignment"');
   }
 
   /* ═══════════════════════════════════════════════════════════════
@@ -2322,14 +2341,26 @@ function parseWB(wb){
         reg[rgn].att.add(code);
 
         // ── DB accumulation ──
-        const _login = codeToLogin[code] || code;
-        const _dbCode = loginToDb[_login] || loginToDb[code] || loginToDb[String(rowS[1]||'').trim()];
+        const _login      = codeToLogin[code] || code;
+        const _codeSuffix = code.replace(/^[A-Z]+/i,'');  // e.g. 'KALM1249' → '1249'
+        const _rawCol1    = String(rowS[1]||'').trim();    // numeric salesman_code col
+        // Try every variant: resolved login, code itself, raw numeric sc, numeric suffix
+        const _dbCode = loginToDb[_login] || loginToDb[code] || loginToDb[_rawCol1]
+                      || (_codeSuffix && loginToDb[_codeSuffix])
+                      || loginToDb[numericToLogin[_rawCol1]]  // numeric sc → KAT/KALM login → dbCode
+                      || loginToDb[numericToLogin[_codeSuffix]]; // suffix → login → dbCode
         if(_dbCode && dbMap[_dbCode]){
           dbMap[_dbCode].revenue += amt;
           dbMap[_dbCode].cases   += qty;
           if(!dbMap[_dbCode].repRevs[code]) dbMap[_dbCode].repRevs[code] = {name:name||reps[code].name||code, revenue:0, cases:0, asm:asm||reps[code].asm||''};
           dbMap[_dbCode].repRevs[code].revenue += amt;
           dbMap[_dbCode].repRevs[code].cases   += qty;
+        } else if(amt > 0){
+          // Log miss so you can see in browser console which codes aren't resolving
+          if(!window._dbMissLog) window._dbMissLog = {};
+          const _mk = code+'|'+_login+'|'+_rawCol1;
+          if(!window._dbMissLog[_mk]){ window._dbMissLog[_mk]=0; }
+          window._dbMissLog[_mk]++;
         }
 
         // ── Brand / Channel / SKU intelligence ──
@@ -2496,6 +2527,15 @@ function parseWB(wb){
   console.log('[Frutta v7-KA-fix] Parse complete. Regions:', 
     Object.fromEntries(REGIONS.map(r=>[r,{rev:reg[r].revenue, cases:reg[r].cases, att:reg[r].attCount, reps:Object.values(reps).filter(x=>x.region===r).length}])));
   console.log('[Frutta v6] Total reps in reps{}:', Object.keys(reps).length, '| Sample codes:', Object.keys(reps).slice(0,10));
+  // DB miss summary — shows unmatched rep codes after all sales processed
+  const _dbHits = Object.values(dbMap).reduce(function(s,d){return s+(d.revenue>0?1:0);},0);
+  console.log('[DB] Summary: '+Object.keys(dbMap).length+' DBs in map, '+_dbHits+' with revenue');
+  if(window._dbMissLog && Object.keys(window._dbMissLog).length){
+    console.warn('[DB] Unmatched rep codes (code|login|rawCol1 : count):', window._dbMissLog);
+    window._dbMissLog = {};
+  } else {
+    console.log('[DB] No unmatched DB codes — all reps resolved correctly');
+  }
 
   /* ── Parse targets from regional sales sheets ── */
   // Detect sales sheets dynamically — handles name changes across months
@@ -4762,6 +4802,21 @@ let dbRgnFilter = null;
 function renderDB(){
   if(!D || !D.dbMap){ 
     document.getElementById('db-content').innerHTML='<div class="empty"><div class="ico">📦</div><h3>No data loaded</h3><p>Upload your Excel file to see DB performance</p></div>';
+    return;
+  }
+  /* Diagnose silently-empty dbMap */
+  const _dbEntries = Object.keys(D.dbMap).length;
+  const _dbWithRev = Object.values(D.dbMap).filter(function(d){return d.revenue>0;}).length;
+  if(_dbEntries === 0){
+    document.getElementById('db-content').innerHTML=
+      '<div class="empty"><div class="ico">⚠️</div><h3>Resource Alignment sheet not found or missing DB Code column</h3>'
+      +'<p style="max-width:480px;margin:0 auto;line-height:1.8">The workbook must contain a sheet named exactly <strong style="color:var(--amb)">Resource Alignment</strong> with columns: <code style="background:var(--s2);padding:2px 6px;border-radius:4px">Salesman_code, DB Code, DB Name</code>.<br>Open browser console (F12) for details.</p></div>';
+    return;
+  }
+  if(_dbWithRev === 0){
+    document.getElementById('db-content').innerHTML=
+      '<div class="empty"><div class="ico">🔗</div><h3>'+_dbEntries+' DBs found — but no revenue matched</h3>'
+      +'<p style="max-width:480px;margin:0 auto;line-height:1.8">Distributor codes exist in Resource Alignment but did not match any sales records. The salesman code format in the Sales sheet likely differs from Resource Alignment.<br>Check browser console (F12) for <code style="background:var(--s2);padding:2px 6px;border-radius:4px">[DB] loginToDb entries</code>.</p></div>';
     return;
   }
   const fm=n=>n>=1e6?'₦'+(n/1e6).toFixed(1)+'M':n>=1e3?'₦'+(n/1e3).toFixed(0)+'K':'₦'+n.toLocaleString();
