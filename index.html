@@ -93,8 +93,8 @@ header{
   color:#030f08;border:none;border-radius:9px;
   font-family:var(--fn);font-size:12px;font-weight:800;letter-spacing:1px;
   cursor:pointer;
-  box-shadow:0 0 18px rgba(0,229,160,.3),inset 0 1px 0 rgba(255,255,255,.25);}
-.upload-btn:hover{box-shadow:0 0 28px rgba(0,229,160,.45),inset 0 1px 0 rgba(255,255,255,.25);transform:translateY(-1px);}
+  box-shadow:none;}
+.upload-btn:hover{box-shadow:0 0 18px rgba(0,229,160,.3),inset 0 1px 0 rgba(255,255,255,.25);}
 .upload-btn:disabled{background:var(--s2);color:var(--dim);cursor:default;box-shadow:none;transform:none;}
 
 /* ═══════════════ ASM FILTER BAR ═══════════════ */
@@ -193,7 +193,7 @@ main{position:relative;z-index:5;padding:28px 32px;max-width:1640px;margin:0 aut
 .kc.p{--acc:var(--pur)}.kc.p:hover{border-color:var(--pur);}
 .kc.r{--acc:var(--red)}.kc.r:hover{border-color:var(--red);box-shadow:0 8px 32px rgba(0,0,0,.3),var(--glow-red);}
 .kc-lbl{font-size:9px;letter-spacing:2.5px;text-transform:uppercase;color:var(--dim);margin-bottom:10px;font-family:var(--fm);font-weight:700;}
-.kc-val{font-family:var(--fn);font-size:28px;font-weight:800;line-height:1;letter-spacing:-1px;}
+.kc-val{font-family:var(--fb);font-size:32px;font-weight:800;line-height:1;letter-spacing:-1px;overflow:hidden;white-space:nowrap;max-width:100%;display:block;}
 .kc-sub{font-size:10px;color:var(--dim);margin-top:7px;font-family:var(--fm);font-weight:700;letter-spacing:.3px;}
 .c-g{color:var(--grn)}.c-a{color:var(--amb)}.c-b{color:var(--blu)}.c-p{color:var(--pur)}.c-r{color:var(--red)}
 
@@ -416,9 +416,19 @@ main{ padding:32px 36px; max-width:1800px; }
   font-family:var(--fb);
   font-size:32px;
   font-weight:800;
-  letter-spacing:-1.5px;
+  letter-spacing:-1px;
   line-height:1;
+  overflow:hidden;
+  white-space:nowrap;
+  max-width:100%;
+  display:block;
+  scale:1;
 }
+/* Scale down long values to fit card width */
+.kc { container-type: inline-size; }
+@container (max-width: 220px) { .kc-val { font-size: 26px; letter-spacing:-0.5px; } }
+@container (max-width: 180px) { .kc-val { font-size: 22px; letter-spacing:0px; } }
+@container (max-width: 150px) { .kc-val { font-size: 18px; letter-spacing:0px; } }
 .kc-sub{
   font-size:11px;
   margin-top:10px;
@@ -555,6 +565,7 @@ tr.rank-bot td{ opacity:.65; }
     <button class="mode-btn" id="theme-btn" onclick="toggleTheme()">☀️ LIGHT</button>
     <button class="mode-btn" id="asm-hdr-btn" style="display:none;border-color:rgba(0,229,160,.35);color:var(--grn)" onclick="toggleASMBar()">👤 ASM FILTER</button>
     <input type="file" id="hfi" accept=".xlsx,.xls" style="display:none" onchange="handleFile(this.files[0])">
+    <button id="upload-btn" class="upload-btn" onclick="document.getElementById('hfi').click()">⬆ UPLOAD</button>
   </div>
 </header>
 
@@ -5592,7 +5603,6 @@ document.querySelectorAll('.empty p').forEach(function(p){
 <!-- ═══════════ FLOATING ADMIN BAR ═══════════ -->
 <div id="admin-float" style="position:fixed;bottom:20px;right:20px;z-index:500;display:flex;flex-direction:column;gap:6px;align-items:flex-end">
   <div style="display:flex;gap:6px">
-    <button id="upload-btn" onclick="document.getElementById('hfi').click()" style="padding:8px 18px;background:linear-gradient(135deg,var(--grn3),var(--grn2));color:#030f08;border:none;border-radius:9px;font-family:var(--fn);font-size:12px;font-weight:800;letter-spacing:1px;cursor:pointer;box-shadow:0 0 18px rgba(0,229,160,.3),inset 0 1px 0 rgba(255,255,255,.25);transition:all .2s" onmouseover="this.style.boxShadow='0 0 28px rgba(0,229,160,.45),inset 0 1px 0 rgba(255,255,255,.25)';this.style.transform='translateY(-1px)'" onmouseout="this.style.boxShadow='0 0 18px rgba(0,229,160,.3),inset 0 1px 0 rgba(255,255,255,.25)';this.style.transform='none'">⬆ UPLOAD</button>
     <button id="publish-btn" onclick="publishData()" style="padding:6px 12px;background:rgba(0,229,160,.12);border:1px solid rgba(0,229,160,.25);color:var(--grn);border-radius:8px;font-family:var(--fm);font-size:9px;letter-spacing:1px;cursor:pointer;opacity:.5;transition:opacity .2s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.5">🚀 PUBLISH</button>
     <button id="admin-gear" onclick="openSetup()" style="padding:6px 12px;background:rgba(255,255,255,.04);border:1px solid var(--bdr);color:var(--dim);border-radius:8px;font-family:var(--fm);font-size:9px;letter-spacing:1px;cursor:pointer;opacity:.5;transition:opacity .2s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.5">⚙️</button>
   </div>
