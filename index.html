@@ -607,7 +607,6 @@ tr.rank-bot td{ opacity:.65; }
   <button class="ntab" onclick="sw('west',this)"><span class="dot"></span>West</button>
   <button class="ntab" onclick="sw('south',this)"><span class="dot"></span>South</button>
   <button class="ntab" onclick="sw('ka',this)"><span class="dot"></span>Key Account</button>
-  <button class="ntab" onclick="sw('abmrank',this)"><span class="dot"></span>🏆 ABM Ranking</button>
   <button class="ntab" onclick="sw('asm',this)"><span class="dot"></span>ASM Scorecard</button>
   <button class="ntab" onclick="sw('intel',this)"><span class="dot"></span>Intelligence</button>
   <button class="ntab" onclick="sw('db',this)"><span class="dot"></span>DB Performance</button>
@@ -665,8 +664,8 @@ tr.rank-bot td{ opacity:.65; }
       <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Avg Compliance % by Region <span id="ov-cmp-ttl" style="font-size:9px;opacity:.6">(target 220)</span></div><div class="cw"><canvas id="c-ov-cmp"></canvas></div></div>
       <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Revenue Share by Region</div><div class="cw"><canvas id="c-ov-share"></canvas></div></div>
     </div>
-    <div class="tb"><div class="tb-hd"><span style="color:var(--grn)">▪</span>Full Region Summary</div>
-      <div style="overflow-x:auto"><table><thead><tr><th>Region</th><th>MTD Revenue</th><th>Rev Target</th><th>Achieved</th><th>Cases</th><th>Cases Target</th><th>Active</th><th>Productive</th><th>Conv. Rate</th><th>Compliance <span id="ov-tbl-cmp-hdr" style="font-weight:400;font-size:9px;opacity:.7">/220</span></th></tr></thead>
+    <div class="tb"><div class="tb-hd"><span style="color:var(--grn)">▪</span>Full Region Summary — Ranked by Cases Achievement</div>
+      <div style="overflow-x:auto"><table><thead><tr><th style="text-align:center">#</th><th>Region</th><th>MTD Revenue</th><th>Rev Target</th><th>Rev Ach %</th><th>Cases Ach</th><th>Cases Target</th><th>Cases Ach %</th><th>Reps</th><th>Active</th><th>Productive</th><th>Conv. Rate</th><th>Compliance <span id="ov-tbl-cmp-hdr" style="font-weight:400;font-size:9px;opacity:.7">/220</span></th></tr></thead>
       <tbody id="ov-tbl"></tbody></table></div>
     </div>
   </div>
@@ -807,11 +806,6 @@ tr.rank-bot td{ opacity:.65; }
   </div>
 </div>
 
-<!-- ABM RANKING -->
-<div id="view-abmrank" class="view">
-  <div id="abmrank-empty" class="empty"><div class="ico">🏆</div><h3>Upload report to view ABM Ranking</h3><p>Region ranking is built automatically from your targets & actuals</p></div>
-  <div id="abmrank-body" style="display:none"></div>
-</div>
 
 <!-- ASM SCORECARD -->
 <div id="view-db" class="view">
@@ -2769,7 +2763,7 @@ function renderAll(){
   for(const r of REGIONS){try{renderRgn(r);}catch(e){console.error("[RGN "+r+"]",e);}}
   try{renderIntel();}catch(e){console.error("[INTEL]",e);}
   try{renderASM();}catch(e){console.error("[ASM]",e);}
-  try{renderABMRank();}catch(e){console.error("[ABMRANK]",e);}
+
   try{renderDB();}catch(e){console.error("[DB]",e);}
   try{renderStock();}catch(e){console.error("[STOCK]",e);}
   // After all renders, force resize all charts so hidden-tab canvases get correct dimensions
@@ -2782,7 +2776,6 @@ function renderView(id){
   else if(id==='gmd') renderGMD();
   else if(id==='intel') renderIntel();
   else if(id==='asm') renderASM();
-  else if(id==='abmrank') renderABMRank();
   else if(id==='db') renderDB();
   else if(id==='stock') renderStock();
   else{const r=Object.entries(RK).find(([,k])=>k===id)?.[0]; if(r) renderRgn(r);}
@@ -2828,39 +2821,62 @@ function renderOV(){try{
    +`<div class="kc"><div class="kc-lbl">Overall Conv.</div><div class="kc-val">${fp(o.met>0?o.sold/o.met*100:0)}</div><div class="kc-sub">Sold ÷ Visited</div></div>`
    +`<div class="kc"><div class="kc-lbl">Avg Compliance</div><div class="kc-val ${overallCompliance>=100?'c-g':overallCompliance>=75?'c-a':''}">${fp(overallCompliance)}</div><div class="kc-sub">${compliantTotal}/${allReps.length} reps at target (${COMPLIANCE_TARGET})</div></div>`;
 
-  // Region achievement cards — when ASM is active show only their region, else all regions
+  // Region achievement cards — ranked by cases achievement, no grade badges
   const rgnAchEl = document.getElementById('ov-rgn-ach');
   const regionsToShow = activeASM
     ? [...new Set(Object.values(D.reps).filter(r=>r.asm===activeASM).map(r=>r.region))]
     : REGIONS;
-  const rgnCards = regionsToShow.map(function(r){
+
+  const rgnDataArr = regionsToShow.map(function(r){
     const rd  = fRegion(r);
-    // When ASM active, use only that ASM's reps' targets in this region
     const rgt = activeASM
       ? Math.round(Object.values(D.reps).filter(function(rep){return !rep.isManager && rep.asm===activeASM && rep.region===r;}).reduce(function(s,rep){return s+(rep.targetCases||0);},0) * (T.blendedPrice||0))
       : (T.regRevTargets && T.regRevTargets[r]) || 0;
     const rct = activeASM
       ? Object.values(D.reps).filter(function(rep){return !rep.isManager && rep.asm===activeASM && rep.region===r;}).reduce(function(s,rep){return s+(rep.targetCases||0);},0)
       : (T.regTargets && T.regTargets[r]) || 0;
-    if(!rgt) return '';
-    const pct  = Math.min(rd.revenue/rgt*100, 999);
-    const col  = pct>=100?'var(--grn)':pct>=75?'var(--amb)':'var(--red)';
-    const barW = Math.min(pct,100);
-    const rc   = RC[r]||'var(--grn)';
-    const rName = r==='Key Acct'?'KEY ACCT':r;
-    return '<div style="flex:1;min-width:160px;max-width:260px;background:var(--s1);border:1px solid var(--bdr);border-left:3px solid '+rc+';border-radius:10px;padding:16px 18px">'
-      +'<div style="font-family:var(--fm);font-size:10px;letter-spacing:2px;color:'+rc+';margin-bottom:6px;font-weight:700;text-transform:uppercase">'+rName+'</div>'
-      +'<div style="font-family:var(--fb);font-size:28px;font-weight:800;color:'+col+';line-height:1;margin-bottom:8px">'+pct.toFixed(1)+'%</div>'
-      +'<div style="width:100%;height:4px;background:var(--bdr);border-radius:2px;overflow:hidden;margin-bottom:10px">'
-      +'<div style="width:'+barW+'%;height:100%;background:'+col+';border-radius:2px;transition:width .6s ease"></div></div>'
-      +'<div style="font-family:var(--fm);font-size:11px;color:var(--dim);margin-bottom:2px">ACH: <span style="color:var(--txt);font-weight:700">'+fm(rd.revenue)+'</span></div>'
-      +'<div style="font-family:var(--fm);font-size:11px;color:var(--dim);margin-bottom:2px">TGT: <span style="color:var(--txt)">'+fm(rgt)+'</span></div>'
-      +'<div style="font-family:var(--fm);font-size:11px;color:var(--dim)">CASES: <span style="color:var(--txt);font-weight:700">'+fn(rd.cases)+'</span> / '+fn(rct)+'</div>'
-      +'</div>';
-  }).join('');
-  if(rgnCards.replace(/<[^>]+>/g,'').trim()){
+    if(!rgt && !rct) return null;
+    const revPct = rgt>0 ? Math.min(rd.revenue/rgt*100, 999) : null;
+    const casPct = rct>0 ? Math.min(rd.cases/rct*100, 999)   : null;
+    return { r, rd, rgt, rct, revPct, casPct, rc: RC[r]||'var(--grn)' };
+  }).filter(Boolean).sort(function(a,b){
+    return (b.casPct!==null?b.casPct:-1) - (a.casPct!==null?a.casPct:-1);
+  });
+
+  if(rgnDataArr.length){
     rgnAchEl.style.display='';
-    rgnAchEl.innerHTML='<div style="font-family:var(--fm);font-size:10px;letter-spacing:2.5px;color:var(--dim);margin-bottom:12px;font-weight:700;text-transform:uppercase">▪ Target Achievement by Region</div>'
+    const rgnCards = rgnDataArr.map(function(d){
+      const rName  = d.r==='Key Acct'?'KEY ACCT':d.r;
+      const revCol = d.revPct===null?'var(--dim)':d.revPct>=100?'var(--grn)':d.revPct>=75?'var(--amb)':'var(--red)';
+      const casCol = d.casPct===null?'var(--dim)':d.casPct>=100?'var(--grn)':d.casPct>=75?'var(--amb)':'var(--red)';
+      const revBarW = d.revPct!==null ? Math.min(d.revPct,100) : 0;
+      const casBarW = d.casPct!==null ? Math.min(d.casPct,100) : 0;
+      return '<div style="flex:1;min-width:160px;max-width:260px;background:var(--s1);border:1px solid var(--bdr);border-left:3px solid '+d.rc+';border-radius:10px;padding:16px 18px">'
+        // Region label
+        +'<div style="font-family:var(--fm);font-size:10px;letter-spacing:2px;color:'+d.rc+';margin-bottom:6px;font-weight:700;text-transform:uppercase">'+rName+'</div>'
+        // Revenue big %
+        +'<div style="font-family:var(--fb);font-size:26px;font-weight:800;color:'+revCol+';line-height:1;margin-bottom:7px">'+(d.revPct!==null?d.revPct.toFixed(1)+'%':'—')+'</div>'
+        +'<div style="width:100%;height:4px;background:var(--bdr);border-radius:2px;overflow:hidden;margin-bottom:9px">'
+          +'<div style="width:'+revBarW+'%;height:100%;background:'+revCol+';border-radius:2px;transition:width .6s ease"></div>'
+        +'</div>'
+        +'<div style="font-family:var(--fm);font-size:11px;color:var(--dim);margin-bottom:2px">ACH: <span style="color:var(--txt);font-weight:700">'+fm(d.rd.revenue)+'</span></div>'
+        +'<div style="font-family:var(--fm);font-size:11px;color:var(--dim);margin-bottom:10px">TGT: <span style="color:var(--txt)">'+fm(d.rgt)+'</span></div>'
+        // Cases section
+        +'<div style="border-top:1px solid var(--bdr);padding-top:9px">'
+          +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'
+            +'<span style="font-family:var(--fm);font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px">📦 Cases</span>'
+            +'<span style="font-family:var(--fn);font-size:13px;font-weight:800;color:'+casCol+'">'+(d.casPct!==null?d.casPct.toFixed(1)+'%':'—')+'</span>'
+          +'</div>'
+          +'<div style="width:100%;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden;margin-bottom:5px">'
+            +'<div style="width:'+casBarW+'%;height:100%;background:'+casCol+';border-radius:2px;transition:width .6s ease"></div>'
+          +'</div>'
+          +'<div style="font-family:var(--fm);font-size:11px;color:var(--dim)">CASES: <span style="color:var(--txt);font-weight:700">'+fn(d.rd.cases)+'</span> / '+fn(d.rct)+'</div>'
+        +'</div>'
+        +'</div>';
+    }).join('');
+
+    rgnAchEl.innerHTML=''
+      +'<div style="font-family:var(--fm);font-size:10px;letter-spacing:2.5px;color:var(--dim);margin-bottom:12px;font-weight:700;text-transform:uppercase">▪ Target Achievement by Region</div>'
       +'<div style="display:flex;flex-wrap:wrap;gap:12px">'+rgnCards+'</div>';
   } else {
     rgnAchEl.style.display='none';
@@ -2879,22 +2895,38 @@ function renderOV(){try{
     doughnutCh('c-ov-share', REGIONS, rdA.map(r=>r.revenue), REGIONS.map(r=>RC[r]));
   },60);
   const tv=o.revenue||1;
-  document.getElementById('ov-tbl').innerHTML=REGIONS.map(r=>{
+  // Build rows sorted by cases achievement % descending
+  const tblRows = REGIONS.map(r=>{
     const rd=fRegion(r);
     const prodCount=fReps(r).filter(function(rep){return rep.revenue>0;}).length;
+    const repCount=fReps(r).length;
     const rgt = (T.regRevTargets  && T.regRevTargets[r])  || 0;
     const rct = (T.regTargets     && T.regTargets[r])     || 0;
     const pct = rgt>0 ? Math.min(rd.revenue/rgt*100,999) : null;
-    const pctColor = pct===null?'var(--dim)':pct>=100?'var(--grn)':pct>=75?'var(--amb)':'var(--red)';
+    const cpct = rct>0 ? Math.min(rd.cases/rct*100,999) : null;
+    return { r, rd, rgt, rct, pct, cpct, prodCount, repCount };
+  }).sort(function(a,b){
+    return (b.cpct!==null?b.cpct:-1) - (a.cpct!==null?a.cpct:-1);
+  });
+  const medalIcon=['🥇','🥈','🥉'];
+  document.getElementById('ov-tbl').innerHTML=tblRows.map(function(d,i){
+    const r=d.r, rd=d.rd;
+    const pctColor = d.pct===null?'var(--dim)':d.pct>=100?'var(--grn)':d.pct>=75?'var(--amb)':'var(--red)';
+    const cpctColor = d.cpct===null?'var(--dim)':d.cpct>=100?'var(--grn)':d.cpct>=75?'var(--amb)':'var(--red)';
+    const rankCell = i<3 ? '<span style="font-size:16px">'+medalIcon[i]+'</span>'
+                         : '<span style="font-family:var(--fn);font-size:12px;font-weight:700;color:var(--dim)">#'+(i+1)+'</span>';
     return`<tr>
+      <td style="text-align:center">${rankCell}</td>
       <td><span style="color:${RC[r]};font-family:var(--fn);font-weight:700">${r==='Key Acct'?'KEY ACCT':r}</span></td>
       <td style="color:var(--grn)">${fm(rd.revenue)}</td>
-      <td style="color:var(--dim);font-size:11px">${rgt>0?fm(rgt):'—'}</td>
-      <td>${pct!==null?`<span style="color:${pctColor};font-weight:700">${pct.toFixed(1)}%</span><div style="margin-top:3px;width:60px;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden"><div style="width:${Math.min(pct,100)}%;height:100%;background:${pctColor};border-radius:2px"></div></div>`:'—'}</td>
-      <td>${fn(rd.cases)}</td>
-      <td style="color:var(--dim);font-size:11px">${rct>0?fn(rct):'—'}</td>
+      <td style="color:var(--dim);font-size:11px">${d.rgt>0?fm(d.rgt):'—'}</td>
+      <td>${d.pct!==null?`<span style="color:${pctColor};font-weight:700">${d.pct.toFixed(1)}%</span><div style="margin-top:3px;width:60px;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden"><div style="width:${Math.min(d.pct,100)}%;height:100%;background:${pctColor};border-radius:2px"></div></div>`:'—'}</td>
+      <td style="font-weight:700">${fn(rd.cases)}</td>
+      <td style="color:var(--dim);font-size:11px">${d.rct>0?fn(d.rct):'—'}</td>
+      <td>${d.cpct!==null?`<span style="color:${cpctColor};font-weight:700">${d.cpct.toFixed(1)}%</span><div style="margin-top:3px;width:60px;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden"><div style="width:${Math.min(d.cpct,100)}%;height:100%;background:${cpctColor};border-radius:2px"></div></div>`:'—'}</td>
+      <td style="color:var(--dim);font-size:11px;text-align:center">${d.repCount}</td>
       <td style="color:var(--blu)">${rd.attCount}</td>
-      <td style="color:var(--grn);font-weight:700">${prodCount} <span style="font-size:9px;color:var(--dim)">(${rd.attCount>0?Math.round(prodCount/rd.attCount*100):0}%)</span></td>
+      <td style="color:var(--grn);font-weight:700">${d.prodCount} <span style="font-size:9px;color:var(--dim)">(${rd.attCount>0?Math.round(d.prodCount/rd.attCount*100):0}%)</span></td>
       <td>${cbadge(rd.conv)}</td>
       <td>${compbadge(rd.compliance||0)}</td>
     </tr>`;
@@ -3056,7 +3088,7 @@ function renderOV(){try{
   }
 
   /* rank highlights */
-  setTimeout(function(){ highlightTableRanks(document.getElementById('ov-tbl'), 1); }, 100);
+  setTimeout(function(){ highlightTableRanks(document.getElementById('ov-tbl'), 7); }, 100);
 }catch(e){console.error('[renderOV CRASH]',e);}
 }
 
@@ -3955,7 +3987,6 @@ function renderRgn(regName){
             +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:4px">'
               +gBadge(g)
               +'<span style="font-family:var(--fn);font-size:11px;font-weight:700;color:'+g.c+'">'+(achPct!==null?achPct.toFixed(1)+'%':'—')+'</span>'
-              + ptsSpan(pts)
             +'</div>'
             +'<div style="width:56px;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden">'
               +'<div style="width:'+barW+'%;height:100%;background:'+ptsC+';border-radius:2px;transition:width .5s ease"></div>'
@@ -3979,8 +4010,8 @@ function renderRgn(regName){
             +'<td style="color:var(--pur);font-family:var(--fb);font-size:13px;font-weight:700">'+a.name+'</td>'
             // Reps
             +'<td style="color:var(--blu);font-weight:700;text-align:center">'+a.reps+'</td>'
-            // Total Score (with bar)
-            +'<td style="min-width:110px"><div style="display:flex;align-items:center;gap:6px">'
+            // Total Score (hidden)
+            +'<td style="display:none"><div style="display:flex;align-items:center;gap:6px">'
                 +'<span style="font-family:var(--fn);font-size:20px;font-weight:800;color:'+scoreColor+'">'+a.totalScore.toFixed(1)+'</span>'
                 +'<div style="flex:1;min-width:44px">'
                   +'<div style="height:4px;background:var(--bdr);border-radius:2px;overflow:hidden">'
@@ -3996,7 +4027,7 @@ function renderRgn(regName){
                 return '<td style="padding:10px 14px">'
                   +'<div style="font-family:var(--fn);font-size:11px;font-weight:700;color:var(--grn);margin-bottom:3px">'+fm(a.revenue)+'</div>'
                   +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-bottom:5px">tgt: '+(a.asmTargetRev>0?fm(a.asmTargetRev):'—')+'</div>'
-                  +'<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">'+gBadge(g)+'<span style="font-family:var(--fn);font-size:11px;font-weight:700;color:'+g.c+'">'+(a.revPct!==null?a.revPct.toFixed(1)+'%':'—')+'</span><span style="font-family:var(--fn);font-size:11px;font-weight:800;color:'+c+'"> · '+a.revPts.toFixed(1)+'</span></div>'
+                  +'<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">'+gBadge(g)+'<span style="font-family:var(--fn);font-size:11px;font-weight:700;color:'+g.c+'">'+(a.revPct!==null?a.revPct.toFixed(1)+'%':'—')+'</span></div>'
                   +'<div style="width:56px;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden"><div style="width:'+barW2+'%;height:100%;background:'+c+';border-radius:2px"></div></div>'
                 +'</td>';
               })()
@@ -4008,7 +4039,7 @@ function renderRgn(regName){
                 return '<td style="padding:10px 14px">'
                   +'<div style="font-family:var(--fn);font-size:11px;font-weight:700;margin-bottom:3px">'+fn(a.cases)+' cs</div>'
                   +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-bottom:5px">tgt: '+(a.asmTargetCases>0?fn(a.asmTargetCases):'—')+'</div>'
-                  +'<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">'+gBadge(g)+'<span style="font-family:var(--fn);font-size:11px;font-weight:700;color:'+g.c+'">'+(a.casPct!==null?a.casPct.toFixed(1)+'%':'—')+'</span><span style="font-family:var(--fn);font-size:11px;font-weight:800;color:'+c+'"> · '+a.casPts.toFixed(1)+'</span></div>'
+                  +'<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">'+gBadge(g)+'<span style="font-family:var(--fn);font-size:11px;font-weight:700;color:'+g.c+'">'+(a.casPct!==null?a.casPct.toFixed(1)+'%':'—')+'</span></div>'
                   +'<div style="width:56px;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden"><div style="width:'+barW2+'%;height:100%;background:'+c+';border-radius:2px"></div></div>'
                 +'</td>';
               })()
@@ -4020,7 +4051,7 @@ function renderRgn(regName){
                 return '<td style="padding:10px 14px">'
                   +'<div style="font-family:var(--fn);font-size:11px;font-weight:700;color:#3d9eff;margin-bottom:3px">'+fn(a.outletCount)+' visits</div>'
                   +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-bottom:5px">tgt: '+(a.visitTgt>0?fn(a.visitTgt):'—')+'</div>'
-                  +'<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">'+gBadge(g)+'<span style="font-family:var(--fn);font-size:11px;font-weight:700;color:'+g.c+'">'+(a.visitPct!==null?a.visitPct.toFixed(1)+'%':'—')+'</span><span style="font-family:var(--fn);font-size:11px;font-weight:800;color:'+c+'"> · '+a.visitPts.toFixed(1)+'</span></div>'
+                  +'<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">'+gBadge(g)+'<span style="font-family:var(--fn);font-size:11px;font-weight:700;color:'+g.c+'">'+(a.visitPct!==null?a.visitPct.toFixed(1)+'%':'—')+'</span></div>'
                   +'<div style="width:56px;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden"><div style="width:'+barW2+'%;height:100%;background:'+c+';border-radius:2px"></div></div>'
                 +'</td>';
               })()
@@ -4032,7 +4063,7 @@ function renderRgn(regName){
                 return '<td style="padding:10px 14px">'
                   +'<div style="font-family:var(--fn);font-size:11px;font-weight:700;color:var(--pur);margin-bottom:3px">'+a.convRate.toFixed(1)+'%</div>'
                   +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);margin-bottom:5px">bmk: '+CONV_BMK+'%</div>'
-                  +'<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">'+gBadge(g)+'<span style="font-family:var(--fn);font-size:11px;font-weight:700;color:'+g.c+'">'+(a.convPct!==null?a.convPct.toFixed(1)+'%':'—')+'</span><span style="font-family:var(--fn);font-size:11px;font-weight:800;color:'+c+'"> · '+a.convPts.toFixed(1)+'</span></div>'
+                  +'<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">'+gBadge(g)+'<span style="font-family:var(--fn);font-size:11px;font-weight:700;color:'+g.c+'">'+(a.convPct!==null?a.convPct.toFixed(1)+'%':'—')+'</span></div>'
                   +'<div style="width:56px;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden"><div style="width:'+barW2+'%;height:100%;background:'+c+';border-radius:2px"></div></div>'
                 +'</td>';
               })()
@@ -4052,7 +4083,7 @@ function renderRgn(regName){
             +'<th style="text-align:center">#</th>'
             +'<th>ABM</th>'
             +'<th style="text-align:center">Reps</th>'
-            +'<th>🏆 Score</th>'
+            +'<th style="display:none">🏆 Score</th>'
             +'<th>💰 Revenue</th>'
             +'<th>📦 Cases</th>'
             +'<th>🚶 Visits</th>'
@@ -4826,262 +4857,6 @@ function renderASM(){
   },100);
 }
 
-/* ═══════════════════════════ ABM (REGION) RANKING — POINTS BASED ══════════ */
-/*
-  Scoring system (total 100 points per region):
-    Revenue Achievement  → 25 pts  (actual / target × 25, capped at 25)
-    Cases Achievement    → 25 pts  (actual / target × 25, capped at 25)
-    Visit Achievement    → 25 pts  (outlet actual / outlet target × 25, capped at 25)
-    Conversion Rate      → 25 pts  (conv% / 80% benchmark × 25, capped at 25)
-
-  Each KPI also gets a Grade: A (≥90%), B (75–89%), C (60–74%), D (<60%)
-*/
-function renderABMRank(){
-  const emEl  = document.getElementById('abmrank-empty');
-  const bdEl  = document.getElementById('abmrank-body');
-  if(!D){ if(emEl) emEl.style.display=''; if(bdEl) bdEl.style.display='none'; return; }
-  if(emEl) emEl.style.display='none';
-  if(bdEl) bdEl.style.display='';
-
-  const T  = D.targets || {};
-  const I  = D.intel   || {};
-  const fm = n => n>=1e6?'₦'+(n/1e6).toFixed(1)+'M':n>=1e3?'₦'+(n/1e3).toFixed(0)+'K':'₦'+n.toLocaleString();
-  const fn = n => n==null?'—':Number(n).toLocaleString();
-  const fp = n => n==null?'—':n.toFixed(1)+'%';
-
-  // Conversion benchmark — 80% = full 25 pts
-  const CONV_BENCHMARK = 80;
-
-  // Grade helper
-  function grade(pct){
-    if(pct===null) return {g:'—', c:'var(--dim)'};
-    if(pct>=90)  return {g:'A', c:'var(--grn)'};
-    if(pct>=75)  return {g:'B', c:'#3d9eff'};
-    if(pct>=60)  return {g:'C', c:'var(--amb)'};
-    return         {g:'D', c:'var(--red)'};
-  }
-
-  // Points helper (0–25)
-  function pts(pct){ return pct===null ? 0 : Math.min(pct/100*25, 25); }
-
-  // Build per-region data
-  const rows = REGIONS.map(function(r){
-    const rd = fRegion(r);
-
-    // Revenue
-    const revTgt = (T.regRevTargets  && T.regRevTargets[r])  || 0;
-    const revAch = revTgt>0 ? rd.revenue/revTgt*100 : null;
-    const revPts = pts(revAch);
-
-    // Cases
-    const casTgt = (T.regTargets     && T.regTargets[r])     || 0;
-    const casAch = casTgt>0 ? rd.cases/casTgt*100 : null;
-    const casPts = pts(casAch);
-
-    // Visit / Outlet
-    const regionReps = Object.values(D.reps).filter(function(rep){ return !rep.isManager && rep.region===r; });
-    const visitTgt = regionReps.reduce(function(s,rep){ return s + repOutletTarget(r); }, 0);
-    const visitAct = regionReps.reduce(function(s,rep){ return s + (rep.outletCount||0); }, 0);
-    const visitAch = visitTgt>0 ? visitAct/visitTgt*100 : null;
-    const visitPts = pts(visitAch);
-
-    // Conversion Rate (vs 80% benchmark)
-    const conv    = rd.conv || 0;
-    const convAch = CONV_BENCHMARK>0 ? conv/CONV_BENCHMARK*100 : null;
-    const convPts = pts(convAch);
-
-    // Total score
-    const totalScore = revPts + casPts + visitPts + convPts;
-
-    return {
-      region: r,
-      color:  RC[r]||'var(--grn)',
-      revTgt, revAct: rd.revenue, revAch, revPts,
-      casTgt, casAct: rd.cases,   casAch, casPts,
-      visitTgt, visitAct, visitAch, visitPts,
-      conv, convAch, convPts,
-      totalScore
-    };
-  }).filter(function(x){ return x.revAct>0 || x.casAct>0; })
-    .sort(function(a,b){ return b.totalScore - a.totalScore; });
-
-  if(!rows.length){
-    bdEl.innerHTML='<div class="empty"><div class="ico">📊</div><h3>No region data found</h3><p>Upload a report to generate ABM rankings</p></div>';
-    return;
-  }
-
-  const medals = ['🥇','🥈','🥉'];
-  const maxScore = rows[0] ? rows[0].totalScore : 100;
-
-  // ── PODIUM CARDS (top 3) ──
-  const podiumHtml = rows.slice(0,3).map(function(row, i){
-    const barW = maxScore>0 ? (row.totalScore/maxScore*100).toFixed(1) : 0;
-    const scoreColor = row.totalScore>=80?'var(--grn)':row.totalScore>=60?'var(--amb)':'var(--red)';
-    const gr = grade(row.revAch);
-    const gc = grade(row.casAch);
-    const gv = grade(row.visitAch);
-    const gconv = grade(row.convAch);
-    return '<div style="flex:1;min-width:240px;background:var(--s1);border:1px solid '+(i===0?'rgba(0,229,160,.4)':'var(--bdr)')+';border-top:3px solid '+row.color+';border-radius:var(--r);padding:20px 22px;position:relative;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,.25)">'
-      +(i===0?'<div style="position:absolute;top:0;right:0;width:80px;height:80px;background:radial-gradient(circle at top right,rgba(0,229,160,.06),transparent);pointer-events:none"></div>':'')
-      // Rank + Region name
-      +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'
-        +'<span style="font-size:26px;line-height:1">'+(medals[i]||'#'+(i+1))+'</span>'
-        +'<div>'
-          +'<div style="font-family:var(--fn);font-size:20px;font-weight:800;color:'+row.color+'">'+(row.region==='Key Acct'?'KEY ACCT':row.region.toUpperCase())+'</div>'
-          +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);letter-spacing:2px;margin-top:2px">RANK #'+(i+1)+' OF '+rows.length+' REGIONS</div>'
-        +'</div>'
-        +'<div style="margin-left:auto;text-align:right">'
-          +'<div style="font-family:var(--fn);font-size:32px;font-weight:800;color:'+scoreColor+';line-height:1">'+row.totalScore.toFixed(1)+'</div>'
-          +'<div style="font-family:var(--fm);font-size:9px;color:var(--dim);letter-spacing:1px">/ 100 PTS</div>'
-        +'</div>'
-      +'</div>'
-      // Score bar
-      +'<div style="width:100%;height:6px;background:var(--bdr);border-radius:4px;overflow:hidden;margin-bottom:18px">'
-        +'<div style="width:'+barW+'%;height:100%;background:linear-gradient(90deg,'+row.color+','+row.color+'aa);border-radius:4px;transition:width .6s ease"></div>'
-      +'</div>'
-      // 4 KPI rows
-      +'<div style="display:flex;flex-direction:column;gap:10px">'
-        // Revenue
-        +kpiRow('💰 Revenue', fm(row.revAct), revTgtStr(row), row.revAch, row.revPts, gr)
-        // Cases
-        +kpiRow('📦 Cases', fn(row.casAct), row.casTgt>0?fn(row.casTgt):'—', row.casAch, row.casPts, gc)
-        // Visits
-        +kpiRow('🚶 Visits', fn(row.visitAct), row.visitTgt>0?fn(row.visitTgt):'—', row.visitAch, row.visitPts, gv)
-        // Conversion
-        +kpiRow('🔄 Conv Rate', fp(row.conv), CONV_BENCHMARK+'% target', row.convAch, row.convPts, gconv)
-      +'</div>'
-    +'</div>';
-
-    function revTgtStr(r){ return r.revTgt>0?fm(r.revTgt):'—'; }
-  }).join('');
-
-  // ── KPI ROW HELPER (inline) ──
-  function kpiRow(label, actual, target, achPct, pts25, gradeObj){
-    const ptsColor = pts25>=22?'var(--grn)':pts25>=17?'#3d9eff':pts25>=12?'var(--amb)':'var(--red)';
-    const barW = Math.min(pts25/25*100,100).toFixed(1);
-    const achStr = achPct!==null ? achPct.toFixed(1)+'%' : '—';
-    return '<div style="background:var(--s2);border-radius:8px;padding:10px 12px">'
-      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
-        +'<span style="font-family:var(--fm);font-size:10px;font-weight:700;color:var(--dim)">'+ label +'</span>'
-        +'<div style="display:flex;align-items:center;gap:8px">'
-          +'<span style="font-family:var(--fm);font-size:9px;background:'+gradeObj.c+'22;color:'+gradeObj.c+';border:1px solid '+gradeObj.c+'55;border-radius:4px;padding:1px 6px;font-weight:700">'+gradeObj.g+'</span>'
-          +'<span style="font-family:var(--fn);font-size:13px;font-weight:800;color:'+ptsColor+'">'+pts25.toFixed(1)+' <span style="font-size:9px;font-weight:400;color:var(--dim)">/ 25</span></span>'
-        +'</div>'
-      +'</div>'
-      +'<div style="display:flex;justify-content:space-between;margin-bottom:5px">'
-        +'<span style="font-family:var(--fb);font-size:11px;font-weight:600;color:var(--txt)">'+actual+' <span style="color:var(--dim);font-weight:400;font-size:10px">/ '+target+'</span></span>'
-        +'<span style="font-family:var(--fn);font-size:11px;font-weight:700;color:'+gradeObj.c+'">'+achStr+'</span>'
-      +'</div>'
-      +'<div style="height:3px;background:var(--bdr);border-radius:2px;overflow:hidden">'
-        +'<div style="width:'+barW+'%;height:100%;background:'+ptsColor+';border-radius:2px;transition:width .5s ease"></div>'
-      +'</div>'
-    +'</div>';
-  }
-
-  // ── FULL RANKING TABLE (all regions) ──
-  const tableRows = rows.map(function(row, i){
-    const gr = grade(row.revAch);
-    const gc = grade(row.casAch);
-    const gv = grade(row.visitAch);
-    const gconv = grade(row.convAch);
-    const scoreColor = row.totalScore>=80?'var(--grn)':row.totalScore>=60?'var(--amb)':'var(--red)';
-    const barW = maxScore>0 ? Math.min(row.totalScore/maxScore*100,100).toFixed(1) : 0;
-    const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':'#'+(i+1);
-    function gBadge(g){ return '<span style="background:'+g.c+'22;color:'+g.c+';border:1px solid '+g.c+'44;border-radius:4px;padding:1px 7px;font-family:var(--fm);font-size:9px;font-weight:700">'+g.g+'</span>'; }
-    return '<tr>'
-      +'<td style="color:var(--dim);font-size:14px">'+medal+'</td>'
-      +'<td><span style="color:'+row.color+';font-family:var(--fn);font-weight:800;font-size:13px">'+(row.region==='Key Acct'?'KEY ACCT':row.region.toUpperCase())+'</span></td>'
-      // Score
-      +'<td><div style="display:flex;align-items:center;gap:8px">'
-          +'<span style="font-family:var(--fn);font-size:18px;font-weight:800;color:'+scoreColor+'">'+row.totalScore.toFixed(1)+'</span>'
-          +'<div style="flex:1;min-width:60px;height:5px;background:var(--bdr);border-radius:3px;overflow:hidden">'
-            +'<div style="width:'+barW+'%;height:100%;background:'+scoreColor+';border-radius:3px"></div>'
-          +'</div>'
-        +'</div></td>'
-      // Revenue
-      +'<td>'
-        +'<div style="font-family:var(--fn);font-size:12px;font-weight:700">'+(row.revTgt>0?fm(row.revAct)+' / '+fm(row.revTgt):'—')+'</div>'
-        +'<div style="display:flex;align-items:center;gap:5px;margin-top:3px">'+gBadge(gr)+'<span style="font-family:var(--fn);font-size:10px;font-weight:700;color:'+gr.c+'">'+(row.revAch!==null?row.revAch.toFixed(1)+'%':'—')+'</span><span style="font-family:var(--fm);font-size:10px;color:'+scoreColor+'">'+row.revPts.toFixed(1)+' pts</span></div>'
-      +'</td>'
-      // Cases
-      +'<td>'
-        +'<div style="font-family:var(--fn);font-size:12px;font-weight:700">'+(row.casTgt>0?fn(row.casAct)+' / '+fn(row.casTgt):'—')+'</div>'
-        +'<div style="display:flex;align-items:center;gap:5px;margin-top:3px">'+gBadge(gc)+'<span style="font-family:var(--fn);font-size:10px;font-weight:700;color:'+gc.c+'">'+(row.casAch!==null?row.casAch.toFixed(1)+'%':'—')+'</span><span style="font-family:var(--fm);font-size:10px;color:'+scoreColor+'">'+row.casPts.toFixed(1)+' pts</span></div>'
-      +'</td>'
-      // Visits
-      +'<td>'
-        +'<div style="font-family:var(--fn);font-size:12px;font-weight:700">'+(row.visitTgt>0?fn(row.visitAct)+' / '+fn(row.visitTgt):'—')+'</div>'
-        +'<div style="display:flex;align-items:center;gap:5px;margin-top:3px">'+gBadge(gv)+'<span style="font-family:var(--fn);font-size:10px;font-weight:700;color:'+gv.c+'">'+(row.visitAch!==null?row.visitAch.toFixed(1)+'%':'—')+'</span><span style="font-family:var(--fm);font-size:10px;color:'+scoreColor+'">'+row.visitPts.toFixed(1)+' pts</span></div>'
-      +'</td>'
-      // Conv Rate
-      +'<td>'
-        +'<div style="font-family:var(--fn);font-size:12px;font-weight:700">'+fp(row.conv)+' <span style="font-size:10px;color:var(--dim)">vs '+CONV_BENCHMARK+'% bmk</span></div>'
-        +'<div style="display:flex;align-items:center;gap:5px;margin-top:3px">'+gBadge(gconv)+'<span style="font-family:var(--fn);font-size:10px;font-weight:700;color:'+gconv.c+'">'+(row.convAch!==null?row.convAch.toFixed(1)+'%':'—')+'</span><span style="font-family:var(--fm);font-size:10px;color:'+scoreColor+'">'+row.convPts.toFixed(1)+' pts</span></div>'
-      +'</td>'
-    +'</tr>';
-  }).join('');
-
-  // ── SCORING LEGEND ──
-  const legendHtml =
-    '<div style="background:var(--s1);border:1px solid var(--bdr);border-radius:var(--r);padding:18px 22px;margin-bottom:26px">'
-    +'<div style="font-family:var(--fm);font-size:9px;letter-spacing:2px;color:var(--dim);margin-bottom:14px;font-weight:700;text-transform:uppercase">▪ Scoring Methodology — 100 Points Maximum</div>'
-    +'<div style="display:flex;flex-wrap:wrap;gap:16px">'
-      +[
-        {icon:'💰',label:'Revenue vs Target', max:25, desc:'Actual ÷ Monthly Target × 25'},
-        {icon:'📦',label:'Cases vs Target',   max:25, desc:'Actual ÷ Monthly Target × 25'},
-        {icon:'🚶',label:'Visit vs Target',   max:25, desc:'Outlet Visits ÷ Rep Target × 25'},
-        {icon:'🔄',label:'Conversion Rate',   max:25, desc:'Conv% ÷ 80% Benchmark × 25'},
-      ].map(function(k){
-        return '<div style="flex:1;min-width:180px;background:var(--s2);border-radius:8px;padding:12px 14px">'
-          +'<div style="font-size:16px;margin-bottom:5px">'+k.icon+'</div>'
-          +'<div style="font-family:var(--fn);font-size:12px;font-weight:700;color:var(--txt);margin-bottom:2px">'+k.label+'</div>'
-          +'<div style="font-family:var(--fm);font-size:10px;color:var(--dim)">'+k.desc+'</div>'
-          +'<div style="font-family:var(--fn);font-size:18px;font-weight:800;color:var(--grn);margin-top:6px">'+k.max+' pts</div>'
-        +'</div>';
-      }).join('')
-    +'</div>'
-    +'<div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">'
-      +'<span style="font-family:var(--fm);font-size:9px;color:var(--dim);letter-spacing:1px">GRADES:</span>'
-      +[
-        {g:'A',c:'var(--grn)',t:'≥ 90%'},
-        {g:'B',c:'#3d9eff',  t:'75–89%'},
-        {g:'C',c:'var(--amb)',t:'60–74%'},
-        {g:'D',c:'var(--red)',t:'< 60%'}
-      ].map(function(gd){
-        return '<span style="background:'+gd.c+'22;color:'+gd.c+';border:1px solid '+gd.c+'55;border-radius:4px;padding:2px 10px;font-family:var(--fm);font-size:10px;font-weight:700">'+gd.g+' ('+gd.t+')</span>';
-      }).join('')
-    +'</div>'
-    +'</div>';
-
-  bdEl.innerHTML =
-    // Section header
-    '<div style="padding:0 0 26px">'
-    +'<div class="sh"><div class="sh-title">ABM RANKING</div>'
-      +'<span class="badge b-grn">POINTS BASED</span>'
-      +'<span class="badge b-amb" style="color:var(--amb);background:rgba(245,166,35,.1);border-color:rgba(245,166,35,.35)">MTD TARGET VS ACHIEVEMENT</span>'
-    +'</div>'
-
-    // Scoring legend
-    + legendHtml
-
-    // Podium
-    +'<div style="font-family:var(--fm);font-size:9px;letter-spacing:2px;color:var(--dim);margin-bottom:14px;font-weight:700;text-transform:uppercase">▪ 🏆 Top Performing Regions</div>'
-    +'<div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:28px">'+podiumHtml+'</div>'
-
-    // Full ranking table
-    +'<div class="tb">'
-      +'<div class="tb-hd"><span style="color:var(--amb)">▪</span> Full Region Ranking — All KPIs <span class="tb-cnt">'+rows.length+' REGIONS</span></div>'
-      +'<div style="overflow-x:auto"><table><thead><tr>'
-        +'<th>Rank</th><th>Region</th>'
-        +'<th>Score <span style="font-weight:400;opacity:.6">/ 100</span></th>'
-        +'<th>💰 Revenue <span style="font-weight:400;opacity:.6">(25 pts)</span></th>'
-        +'<th>📦 Cases <span style="font-weight:400;opacity:.6">(25 pts)</span></th>'
-        +'<th>🚶 Visits <span style="font-weight:400;opacity:.6">(25 pts)</span></th>'
-        +'<th>🔄 Conv Rate <span style="font-weight:400;opacity:.6">(25 pts)</span></th>'
-      +'</tr></thead><tbody>'+tableRows+'</tbody></table></div>'
-    +'</div>'
-    +'</div>';
-}
 
 
 function filterRepTable(tbodyId, query){
@@ -5954,7 +5729,7 @@ restoreFilterState();
     }
     /* Highlight region summary table */
     setTimeout(function(){
-      highlightTableRanks(document.getElementById('ov-tbl'), 1);
+      highlightTableRanks(document.getElementById('ov-tbl'), 7);
     }, 120);
   };
 })();
@@ -5967,7 +5742,7 @@ restoreFilterState();
     saveFilterState();
     setTimeout(function(){
       /* highlight region summary if on overview */
-      if(id==='ov') highlightTableRanks(document.getElementById('ov-tbl'),1);
+      if(id==='ov') highlightTableRanks(document.getElementById('ov-tbl'),7);
       /* ASM scorecard table */
       if(id==='asm') highlightTableRanks(document.querySelector('#asm-body table tbody'),1);
     },200);
