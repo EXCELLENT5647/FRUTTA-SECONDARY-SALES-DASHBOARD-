@@ -817,7 +817,19 @@ tr.rank-bot td{ opacity:.65; }
         <div id="db-rgn-dl" style="display:none;gap:5px;flex-wrap:wrap;align-items:center;border-left:1px solid var(--bdr);padding-left:8px;margin-left:4px"></div>
       </div>
     </div>
-    <div id="db-filters" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px"></div>
+    <div id="db-filters" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"></div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px">
+      <div style="position:relative;flex:1;max-width:340px">
+        <input id="db-search-inp" type="text" placeholder="Search distributor name or code…"
+          oninput="dbSearchTerm=this.value.trim().toLowerCase();renderDB()"
+          style="width:100%;background:var(--s2);border:1px solid var(--bdr);border-radius:9px;padding:8px 36px 8px 14px;font-family:var(--fm);font-size:11px;color:var(--txt);outline:none;font-weight:700;"
+          onfocus="this.style.borderColor='var(--grn2)';this.style.boxShadow='0 0 0 3px rgba(0,229,160,.08)'"
+          onblur="this.style.borderColor='var(--bdr)';this.style.boxShadow='none'">
+        <span style="position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--grn);font-size:12px;pointer-events:none">🔍</span>
+      </div>
+      <button id="db-search-clear" onclick="dbSearchTerm='';document.getElementById('db-search-inp').value='';renderDB()"
+        style="display:none;padding:7px 14px;background:var(--redb);border:1px solid rgba(255,71,87,.4);border-radius:8px;color:var(--red);font-family:var(--fm);font-size:9px;cursor:pointer;font-weight:700;letter-spacing:1px">✕ Clear</button>
+    </div>
     <div id="db-content"></div>
   </div>
 </div>
@@ -2279,6 +2291,8 @@ function parseWB(wb){
       const row = rows[i];
       if(!row||!row[loginCol]) continue;
       const login  = String(row[loginCol]).trim();
+      // Skip summary/total rows — a real rep login always contains digits
+      if(!login || !/\d/.test(login)) continue;
       const target = parseFloat(row[targetCol]);
       if(login && !isNaN(target) && target>0){
         repTargets[login] = target;
@@ -4877,6 +4891,7 @@ function filterRepTable(tbodyId, query){
 
 /* ═══════════════════════════ DB PERFORMANCE ═════════════════════════ */
 let dbRgnFilter = null;
+let dbSearchTerm = '';
 
 function renderDB(){
   if(!D || !D.dbMap){ 
@@ -4915,12 +4930,20 @@ function renderDB(){
         +'color:'+(active?col:'var(--dim)')+'">'+r+'</button>';
     }).join('');
 
-  // Filter DBs by region
+  // Filter DBs by region and search term
   const dbs = Object.entries(D.dbMap)
     .filter(function([code,d]){ return !dbRgnFilter || d.region.toUpperCase()===dbRgnFilter.toUpperCase() || d.region===dbRgnFilter; })
+    .filter(function([code,d]){
+      if(!dbSearchTerm) return true;
+      return (d.name||'').toLowerCase().includes(dbSearchTerm) || (code||'').toLowerCase().includes(dbSearchTerm);
+    })
     .map(function([code,d]){ return {...d, code}; })
     .filter(function(d){ return d.revenue > 0; })
     .sort(function(a,b){ return b.revenue - a.revenue; });
+
+  // Toggle clear button visibility
+  const _clrBtn = document.getElementById('db-search-clear');
+  if(_clrBtn) _clrBtn.style.display = dbSearchTerm ? '' : 'none';
 
   if(!dbs.length){
     document.getElementById('db-content').innerHTML='<div class="empty"><div class="ico">🔍</div><h3>No DB data found</h3><p>No revenue recorded for this filter</p></div>';
