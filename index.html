@@ -5102,8 +5102,12 @@ function exportDBAll(regionOverride){
     .sort(function(a,b){ return b.revenue - a.revenue; });
 
   allDbs.forEach(function(db){
-    // Count active reps (those with revenue)
-    const numReps = Object.keys(db.repRevs || {}).length;
+    // db.reps stores sc + login + scSuffix per rep — deduplicate by numeric core
+    const repCores = new Set((db.reps||[]).map(function(k){
+      var m = String(k).replace(/^[A-Za-z]+/,''); return (m && /\d/.test(m)) ? m : k;
+    }));
+    const numReps = repCores.size > 0 ? repCores.size : Object.keys(db.repRevs||{}).length;
+    console.log('[DBExport]', db.name, 'raw reps:', db.reps, 'cores:', [...repCores], 'numReps:', numReps);
 
     // Opening stock lookup (match by code or name)
     let stockEntry = sdAll[db.code] || null;
@@ -5134,7 +5138,7 @@ function exportDBAll(regionOverride){
 
   if(typeof XLSX==='undefined'){toast('⚠ Export unavailable');return;}
   const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=(rows[0]||[]).map(function(_,ci){return {wch:Math.max(...rows.map(function(r){return (r[ci]||'').length;}),8)};});
+  ws['!cols']=(rows[0]||[]).map(function(_,ci){return {wch:Math.max(...rows.map(function(r){return String(r[ci]||'').length;}),8)};});
   const wb2=XLSX.utils.book_new();
   const sheetName = activeRegion ? activeRegion.slice(0,31) : 'DB Performance';
   XLSX.utils.book_append_sheet(wb2,ws,sheetName);
