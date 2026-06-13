@@ -5081,12 +5081,15 @@ function exportDBAll(regionOverride){
   if(!D || !D.dbMap){ toast('⚠ No data to export'); return; }
   const fn2=function(n){return n==null?'':Number(n).toLocaleString();};
 
-  // Header row — simplified to key fields only
-  const header = ['DB Name','Code','Region','Total Revenue','Total Cases Sold'];
+  // Header row
+  const header = ['DB Name','Code','Region','No. of Reps','Opening Stock','Current Stock','Total Revenue','Total Cases Sold'];
   const rows = [header];
 
   // Determine which region filter applies
   const activeRegion = regionOverride !== undefined ? regionOverride : dbRgnFilter;
+
+  // Stock data lookup helper
+  const sdAll = (D.stockData) || {};
 
   // Collect DBs, filtered by region if specified
   const allDbs = Object.entries(D.dbMap)
@@ -5099,10 +5102,28 @@ function exportDBAll(regionOverride){
     .sort(function(a,b){ return b.revenue - a.revenue; });
 
   allDbs.forEach(function(db){
+    // Count active reps (those with revenue)
+    const numReps = Object.keys(db.repRevs || {}).length;
+
+    // Opening stock lookup (match by code or name)
+    let stockEntry = sdAll[db.code] || null;
+    if(!stockEntry){
+      const dbNameL = (db.name||'').toLowerCase();
+      stockEntry = Object.values(sdAll).find(function(e){
+        return (e.name||'').toLowerCase()===dbNameL || (e.code||'')===db.code;
+      }) || null;
+    }
+    const openingStock = stockEntry ? stockEntry.totalPrev : '';
+    const totalStock   = stockEntry ? stockEntry.totalStock : null;
+    const currentStock = totalStock !== null ? totalStock - db.cases : '';
+
     rows.push([
       db.name  || '',
       db.code  || '',
       db.region|| '',
+      numReps,
+      openingStock === '' ? '' : fn2(openingStock),
+      currentStock === '' ? '' : fn2(currentStock),
       fn2(db.revenue),
       fn2(db.cases)
     ]);
