@@ -5118,9 +5118,10 @@ function exportDBAll(regionOverride){
         return (e.name||'').toLowerCase()===dbNameL || (e.code||'')===db.code;
       }) || null;
     }
-    const openingStock = stockEntry ? stockEntry.totalPrev : '';
-    const totalStock   = stockEntry ? stockEntry.totalStock : null;
-    const currentStock = totalStock !== null ? totalStock - db.cases : '';
+    // Opening stock = prev week + shipment (total customer stock, same as shown on screen)
+    const openingStock = stockEntry ? stockEntry.totalStock : '';
+    // Current stock = Opening stock − cases actually sold by reps (from Sales data)
+    const currentStock = stockEntry && db.cases != null ? stockEntry.totalStock - db.cases : '';
 
     rows.push([
       db.name  || '',
