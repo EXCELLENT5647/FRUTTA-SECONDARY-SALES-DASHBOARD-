@@ -5082,7 +5082,7 @@ function exportDBAll(regionOverride){
   const fn2=function(n){return n==null?'':Number(n).toLocaleString();};
 
   // Header row
-  const header = ['DB Name','Code','Region','No. of Reps','Opening Stock','Current Stock','Total Revenue','Total Cases Sold'];
+  const header = ['DB Name','Code','Region','Assigned Reps','Active Sellers','Opening Stock','Current Stock','Total Revenue','Total Cases Sold'];
   const rows = [header];
 
   // Determine which region filter applies
@@ -5102,12 +5102,13 @@ function exportDBAll(regionOverride){
     .sort(function(a,b){ return b.revenue - a.revenue; });
 
   allDbs.forEach(function(db){
-    // db.reps stores sc + login + scSuffix per rep — deduplicate by numeric core
-    const repCores = new Set((db.reps||[]).map(function(k){
+    // Assigned reps — deduplicate db.reps by numeric core (sc + login + suffix stored per rep)
+    const assignedCores = new Set((db.reps||[]).map(function(k){
       var m = String(k).replace(/^[A-Za-z]+/,''); return (m && /\d/.test(m)) ? m : k;
     }));
-    const numReps = repCores.size > 0 ? repCores.size : Object.keys(db.repRevs||{}).length;
-    console.log('[DBExport]', db.name, 'raw reps:', db.reps, 'cores:', [...repCores], 'numReps:', numReps);
+    const assignedReps = assignedCores.size > 0 ? assignedCores.size : 0;
+    // Active sellers — reps who actually recorded sales under this DB
+    const activeSellers = Object.keys(db.repRevs || {}).length;
 
     // Opening stock lookup (match by code or name)
     let stockEntry = sdAll[db.code] || null;
@@ -5125,7 +5126,8 @@ function exportDBAll(regionOverride){
       db.name  || '',
       db.code  || '',
       db.region|| '',
-      numReps,
+      assignedReps,
+      activeSellers,
       openingStock === '' ? '' : fn2(openingStock),
       currentStock === '' ? '' : fn2(currentStock),
       fn2(db.revenue),
