@@ -1074,6 +1074,19 @@ function isManagerCode(code){
   return false;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   isVacantName — true when a rep's resolved name marks the
+   position as unfilled (the source export tags these "Vacant
+   Vacant"). No real person sits in that route, so these get the
+   same treatment as ASMs/managers everywhere downstream: excluded
+   from Active/Productive Reps, per-rep averages and leaderboards,
+   while any revenue they logged still rolls up into regional and
+   distributor totals.
+   ═══════════════════════════════════════════════════════════════ */
+function isVacantName(name){
+  return /vacant/i.test(String(name||'').trim());
+}
+
 function normRgn(raw){
   const r=String(raw||'').toUpperCase().trim();
   if(r.includes('KEY')||r.includes('KAT')||r.startsWith('KA')) return 'Key Acct';
@@ -1527,27 +1540,38 @@ function parseWB(wb){
         }
       }
 
-      /* — dbMap: only rows with a real DB code — */
-      if(dbCode && dbCode !== '#N/A' && !dbCode.startsWith('=')){
+      /* — dbMap: rows with a real DB code go to the named distributor;
+         rows missing the DB code (or marked #N/A) get bucketed into a
+         per-region "Unassigned" pseudo-distributor so their sales still
+         appear in DB Performance instead of vanishing from the tab.
+         Active reps occasionally have #N/A in Resource Alignment when the
+         export hasn't been updated after a route reassignment — this keeps
+         their revenue visible while flagging the gap clearly. — */
+      const _hasRealDb = dbCode && dbCode !== '#N/A' && !dbCode.startsWith('=');
+      const _effectiveDb   = _hasRealDb ? dbCode : (rgn ? ('_UNASSIGNED_'+rgn) : null);
+      const _effectiveName = _hasRealDb ? (dbName||dbCode)
+                                        : (rgn ? ('⚠ Unassigned ('+rgn+')') : null);
+      if(_effectiveDb){
         // Index by every possible key a sales row might use to look up this rep's DB
-        loginToDb[sc] = dbCode;                                          // e.g. '1249' or 'KALM1249'
-        if(login) loginToDb[login] = dbCode;                             // e.g. 'KALM1249'
+        loginToDb[sc] = _effectiveDb;                                          // e.g. '1249' or 'KALM1249'
+        if(login) loginToDb[login] = _effectiveDb;                             // e.g. 'KALM1249'
         // Numeric-only suffix of sc (e.g. 'KALM1249' → '1249')
         const scSuffix = sc.replace(/^[A-Z]+/i,'');
-        if(scSuffix && /^\d+$/.test(scSuffix) && scSuffix !== sc) loginToDb[scSuffix] = dbCode;
+        if(scSuffix && /^\d+$/.test(scSuffix) && scSuffix !== sc) loginToDb[scSuffix] = _effectiveDb;
         // Numeric-only suffix of login (e.g. 'KALM1249' → '1249')
         if(login){
           const loginSuffix = login.replace(/^[A-Z]+/i,'');
           if(loginSuffix && /^\d+$/.test(loginSuffix) && loginSuffix !== sc && loginSuffix !== scSuffix){
-            loginToDb[loginSuffix] = dbCode;
+            loginToDb[loginSuffix] = _effectiveDb;
           }
         }
-        if(!dbMap[dbCode]){
-          dbMap[dbCode] = {name:dbName||dbCode, reps:[], region:rgn, revenue:0, cases:0, repRevs:{}};
+        if(!dbMap[_effectiveDb]){
+          dbMap[_effectiveDb] = {name:_effectiveName, reps:[], region:rgn, revenue:0, cases:0, repRevs:{}};
         }
-        if(sc    && !dbMap[dbCode].reps.includes(sc))    dbMap[dbCode].reps.push(sc);
-        if(login && !dbMap[dbCode].reps.includes(login)) dbMap[dbCode].reps.push(login);
-        if(scSuffix && scSuffix !== sc && !dbMap[dbCode].reps.includes(scSuffix)) dbMap[dbCode].reps.push(scSuffix);
+        if(sc    && !dbMap[_effectiveDb].reps.includes(sc))    dbMap[_effectiveDb].reps.push(sc);
+        if(login && !dbMap[_effectiveDb].reps.includes(login)) dbMap[_effectiveDb].reps.push(login);
+        const scSuffix2 = sc.replace(/^[A-Z]+/i,'');
+        if(scSuffix2 && scSuffix2 !== sc && !dbMap[_effectiveDb].reps.includes(scSuffix2)) dbMap[_effectiveDb].reps.push(scSuffix2);
       }
     }
     console.log('[DB] loginToDb entries:', Object.keys(loginToDb).length, '| dbMap entries:', Object.keys(dbMap).length);
@@ -1679,14 +1703,24 @@ function parseWB(wb){
       }
       if(salesCodeCol>=0 && loginCol>=0) break;
     }
-    // Fallback to header-based detection
-    if(salesCodeCol<0) salesCodeCol = colIdx(hdr,'code','sr code','rep code');
-    if(loginCol<0)     loginCol     = colIdx(hdr,'login','login id','user');
+    // Guard: a column can't be BOTH the sales-code column and the login column.
+    // This collision happens when a sheet mixes bare KA-style codes (no SR/SP,
+    // e.g. KATEE1238) and SR/SP-style logins within the same column across
+    // different rows — the scan above can mistake that one column for both,
+    // silently dropping the true numeric salesman_code column. Discard the
+    // unreliable result and fall back to header-based detection instead.
+    if(salesCodeCol === loginCol) salesCodeCol = -1;
+    // Fallback to header-based detection — prefer specific keywords first so
+    // 'salesman_code' isn't confused with unrelated columns like 'visitcode'
+    // or 'cust_code' that also happen to contain the substring 'code'.
+    if(salesCodeCol<0) salesCodeCol = colIdx(hdr,'salesman_code','salesman code','sr code','rep code');
+    if(loginCol<0)     loginCol     = colIdx(hdr,'login id','login_id','login','user');
     if(nameCol<0)      nameCol      = colIdx(hdr,'name','rep name','staff','sr name','se name','salesman','employee','full name','rep_name','staff name');
     // Final fallback: assume [row, code, login, name]
     if(salesCodeCol<0) salesCodeCol = 1;
     if(loginCol<0)     loginCol     = 2;
     if(nameCol<0)      nameCol      = 3;
+
 
     // Also detect numoutletvisited column
     const numOutletCol = colIdx(hdr, 'numoutlet', 'num_outlet', 'outlets visited', 'outlet visited');
@@ -1701,15 +1735,21 @@ function parseWB(wb){
 
       // Accumulate numoutletvisited per rep
       const numOv = numOutletCol>=0 ? parseFloat(row[numOutletCol]||0)||0 : 0;
-      const repKey = login && rgnFromCode(login) ? login : (rgnFromCode(code) ? code : null);
+      // Prefer the authoritative login from Resource Alignment (numericToLogin)
+      // over this sheet's own login column — see note in OUTLET VISIT section
+      // above for why these can disagree for a rep whose designation changed.
+      const repKey = numericToLogin[code] ? numericToLogin[code]
+                   : (login && rgnFromCode(login) ? login : (rgnFromCode(code) ? code : null));
       if(repKey && numOv > 0){
         if(!reps[repKey]) ensureRep(repKey, rgnFromCode(repKey), name, loginToASM[repKey]||loginToASM[code]||'');
         reps[repKey].outletCount = (reps[repKey].outletCount||0) + numOv;
       }
 
       if(login && !login.startsWith('=')){
-        codeToLogin[code]  = login;
-        loginToCode[login] = code;
+        // Don't clobber a login already established as authoritative
+        // (e.g. from Resource Alignment) with a stale value from this sheet.
+        codeToLogin[code]  = codeToLogin[code]  || login;
+        loginToCode[login] = loginToCode[login] || code;
         if(!loginToASM[code]  && loginToASM[login])  loginToASM[code]  = loginToASM[login];
         if(!loginToASM[login] && loginToASM[code])    loginToASM[login] = loginToASM[code];
         if(!loginToName[code]  && name) loginToName[code]  = name;
@@ -1824,15 +1864,14 @@ function parseWB(wb){
         // Skip test accounts
         if(code==='9999' || code==='1075' || login==='9999') continue;
 
-        // Resolve code: if numeric or unrecognised, use login
-        if(!rgnFromCode(code) && login && rgnFromCode(login)){
-          code = login;
-        }
+        // Resolve code: prefer the authoritative login from Resource Alignment
+        // (numericToLogin, built from the HR roster) over this sheet's own login
+        // column. Outlet Visit / Attendance exports can carry a stale designation
+        // tag (e.g. "SR" vs "SP") for a rep whose role changed, which would
+        // otherwise split one person's data across two different rep codes.
         if(!rgnFromCode(code) && numericToLogin[code]){
           code = numericToLogin[code];
-        }
-        // Last resort: use login as code if it maps to a region
-        if(!rgnFromCode(code) && login && rgnFromCode(login)){
+        } else if(!rgnFromCode(code) && login && rgnFromCode(login)){
           code = login;
         }
 
@@ -2056,8 +2095,11 @@ function parseWB(wb){
           if(!dbMap[_dbCode].repRevs[code]) dbMap[_dbCode].repRevs[code] = {name:name||reps[code].name||code, revenue:0, cases:0, asm:asm||reps[code].asm||''};
           dbMap[_dbCode].repRevs[code].revenue += amt;
           dbMap[_dbCode].repRevs[code].cases   += qty;
-        } else if(amt > 0){
-          // Log miss so you can see in browser console which codes aren't resolving
+        } else if(amt > 0 && !isManagerCode(code)){
+          // Log miss so you can see in browser console which codes aren't resolving.
+          // Manager/ASM codes are excluded — they're not assigned to a specific
+          // distributor by design, so their sales legitimately have nowhere to
+          // land in the DB Performance tab and shouldn't pollute this log.
           if(!window._dbMissLog) window._dbMissLog = {};
           const _mk = code+'|'+_login+'|'+_rawCol1;
           if(!window._dbMissLog[_mk]){ window._dbMissLog[_mk]=0; }
@@ -2107,6 +2149,16 @@ function parseWB(wb){
     if(!reps[code].name){
       const login = codeToLogin[code] || '';
       reps[code].name = loginToName[code] || loginToName[login] || '';
+    }
+  }
+
+  /* ── Drop empty per-region "Unassigned" buckets — these are only useful
+        when they're actually catching orphaned sales. Buckets that exist
+        because a rep has #N/A DB but didn't sell this month would just
+        clutter the DB Performance tab with empty rows. ── */
+  for(const k of Object.keys(dbMap)){
+    if(k.startsWith('_UNASSIGNED_') && (!dbMap[k].revenue || dbMap[k].revenue === 0)){
+      delete dbMap[k];
     }
   }
 
@@ -2243,7 +2295,8 @@ function parseWB(wb){
   const _dbHits = Object.values(dbMap).reduce(function(s,d){return s+(d.revenue>0?1:0);},0);
   console.log('[DB] Summary: '+Object.keys(dbMap).length+' DBs in map, '+_dbHits+' with revenue');
   if(window._dbMissLog && Object.keys(window._dbMissLog).length){
-    console.warn('[DB] Unmatched rep codes (code|login|rawCol1 : count):', window._dbMissLog);
+    console.warn('[DB] Unmatched rep codes (code|login|rawCol1 : count): '
+      + JSON.stringify(window._dbMissLog, null, 2));
     window._dbMissLog = {};
   } else {
     console.log('[DB] No unmatched DB codes — all reps resolved correctly');
@@ -2532,6 +2585,13 @@ function parseWB(wb){
     if(!rep.asm && codeToLogin[code]){
       rep.asm = loginToASM[codeToLogin[code]] || rep.asm;
     }
+    // Vacant-position accounts (name resolves to "Vacant Vacant" or similar):
+    // mark isManager too so every existing "!r.isManager" rep-level filter
+    // throughout the dashboard (Active/Productive Reps, averages, leaderboards,
+    // region rep counts) excludes them automatically — same treatment as ASMs.
+    // Their revenue is untouched and still counts in regional/distributor totals.
+    rep.isVacant = isVacantName(rep.name);
+    if(rep.isVacant) rep.isManager = true;
   }
 
     return {overall:{revenue:tv,cases:tc,att:ta,met:tm,sold:ts},
