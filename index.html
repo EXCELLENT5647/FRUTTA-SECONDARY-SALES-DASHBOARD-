@@ -1347,7 +1347,7 @@ function handleFile(file){
       buildASMBar();
       renderAll();
       sw('ov',document.querySelector('.ntab'));
-      const repCount=Object.keys(D.reps).filter(c=>!D.reps[c].isManager).length;
+      const repCount=Object.keys(D.reps).filter(c=>!D.reps[c].isManager && !D.reps[c].isVacant).length;
       const asmCount=[...new Set(Object.values(D.reps).map(r=>r.asm).filter(Boolean))].length;
       toast(isNew ? `✓ ${monthKey} added · ${repCount} reps · ${asmCount} ASMs` : `✓ ${monthKey} updated · ${repCount} reps · ${asmCount} ASMs`);
     }catch(err){
@@ -2255,7 +2255,11 @@ function parseWB(wb){
       (repRegAtt && (repRegAtt.has(code) || repRegAtt.has(loginKey)))
     );
   }
-  // Recalculate region metCount from rep unique outlet counts
+  // Recalculate region metCount from rep unique outlet counts.
+  // Vacant-position reps are intentionally INCLUDED here — their outlet
+  // activity is real work that happened in the region and counts toward the
+  // regional total, even though the vacant position itself is hidden from
+  // per-rep displays. Only true managers (ASMs) are excluded.
   for(const r of REGIONS){
     const regionReps = Object.values(reps).filter(rep=>rep.region===r && !rep.isManager);
     const totalOutlets = regionReps.reduce(function(s,rep){return s+(rep.outletCount||0);},0);
@@ -2265,7 +2269,7 @@ function parseWB(wb){
 
   // Region compliance = average of non-manager reps in region
   for(const r of REGIONS){
-    const regionReps = Object.values(reps).filter(rep=>rep.region===r && !rep.isManager);
+    const regionReps = Object.values(reps).filter(rep=>rep.region===r && !rep.isManager && !rep.isVacant);
     reg[r].compliance = regionReps.length>0
       ? regionReps.reduce((s,rep)=>s+rep.compliance,0) / regionReps.length
       : 0;
@@ -2586,12 +2590,13 @@ function parseWB(wb){
       rep.asm = loginToASM[codeToLogin[code]] || rep.asm;
     }
     // Vacant-position accounts (name resolves to "Vacant Vacant" or similar):
-    // mark isManager too so every existing "!r.isManager" rep-level filter
-    // throughout the dashboard (Active/Productive Reps, averages, leaderboards,
-    // region rep counts) excludes them automatically — same treatment as ASMs.
-    // Their revenue is untouched and still counts in regional/distributor totals.
+    // these get hidden from per-rep displays (leaderboards, productive/active
+    // counts, ASM rollups) but their actual work — outlets visited, customers
+    // sold, cases shifted, revenue — still rolls up into regional and
+    // distributor totals just like any other sales. Tracked as a separate
+    // flag from isManager so the two exclusion rules can be applied
+    // independently downstream.
     rep.isVacant = isVacantName(rep.name);
-    if(rep.isVacant) rep.isManager = true;
   }
 
     return {overall:{revenue:tv,cases:tc,att:ta,met:tm,sold:ts},
@@ -2607,31 +2612,38 @@ function fReps(rgn, includeManagers){
     .filter(([code,r])=>
       (!rgn||r.region===rgn) &&
       (!activeASM||r.asm===activeASM) &&
-      (includeManagers || !r.isManager)   // exclude ASMs & KA managers by default
+      (includeManagers || (!r.isManager && !r.isVacant))   // exclude ASMs/KA managers and vacant positions by default
     )
     .map(([code,r])=>({code,...r}))
     .sort((a,b)=>b.revenue-a.revenue);
 }
 function fRegion(rgn){
   if(!activeASM) return D.regions[rgn];
-  const reps=fReps(rgn);
+  // For ASM-filtered region totals: include ALL reps under this ASM in this
+  // region, including vacant positions — their work counts toward the totals.
+  const repsForWork = Object.values(D.reps).filter(function(r){
+    return !r.isManager && r.region===rgn && r.asm===activeASM;
+  });
+  // For "active rep count" we still exclude vacant — that's a count of people.
+  const repsForCount = repsForWork.filter(function(r){return !r.isVacant;});
   const metSet=new Set(), soldSet=new Set();
-  reps.forEach(function(r){
+  repsForWork.forEach(function(r){
     if(r.outlets instanceof Set) r.outlets.forEach(function(c){metSet.add(c);});
     if(r.custsSold instanceof Set) r.custsSold.forEach(function(c){soldSet.add(c);});
   });
   // Fallback to counts if Sets already finalised
   const metCount  = metSet.size>0  ? Math.max(metSet.size, soldSet.size)
-                                    : reps.reduce(function(s,r){return s+(r.outletCount||0);},0);
+                                    : repsForWork.reduce(function(s,r){return s+(r.outletCount||0);},0);
   const soldCount = soldSet.size>0 ? soldSet.size
-                                   : reps.reduce(function(s,r){return s+(r.soldCount||0);},0);
-  const compliance = reps.length>0 ? reps.reduce((s,r)=>s+(r.compliance||0),0)/reps.length : 0;
-  const compliantCount = reps.filter(r=>(r.compliance||0)>=100).length;
+                                   : repsForWork.reduce(function(s,r){return s+(r.soldCount||0);},0);
+  // Compliance is per-rep, so exclude vacant (no person to be compliant)
+  const compliance = repsForCount.length>0 ? repsForCount.reduce((s,r)=>s+(r.compliance||0),0)/repsForCount.length : 0;
+  const compliantCount = repsForCount.filter(r=>(r.compliance||0)>=100).length;
   return{
-    revenue:reps.reduce((s,r)=>s+r.revenue,0),
-    cases:reps.reduce((s,r)=>s+r.cases,0),
+    revenue:repsForWork.reduce((s,r)=>s+r.revenue,0),
+    cases:repsForWork.reduce((s,r)=>s+r.cases,0),
     soldCount, metCount,
-    attCount:reps.length,
+    attCount:repsForCount.length,
     conv:metCount>0?Math.min(soldCount/metCount*100,100):0,
     compliance, compliantCount,
   };
@@ -2644,26 +2656,33 @@ function fOverall(){
       targetRev:   T.totalTargetRev   || 0,
     });
   }
-  // Include zero-revenue reps for att count (active = checked in, not just productive)
-  const reps = fReps(null);
-  const allRepsInASM = Object.values(D.reps).filter(function(r){
+  // For ASM-filtered totals: include ALL reps assigned to this ASM, including
+  // vacant positions — their work (revenue, outlets, customers) is real and
+  // belongs in the ASM's territory totals. Vacant accounts are still excluded
+  // from per-rep displays via fReps, but their aggregated work counts here.
+  const repsForWork = Object.values(D.reps).filter(function(r){
     return !r.isManager && r.asm === activeASM;
   });
+  // For counts of "real working positions" (active rep count, target sum),
+  // vacant accounts are excluded — no person assigned to hit a target.
+  const allRepsInASM = Object.values(D.reps).filter(function(r){
+    return !r.isManager && !r.isVacant && r.asm === activeASM;
+  });
   const metSet=new Set(), soldSet=new Set();
-  reps.forEach(function(r){
+  repsForWork.forEach(function(r){
     if(r.outlets instanceof Set) r.outlets.forEach(function(c){metSet.add(c);});
     if(r.custsSold instanceof Set) r.custsSold.forEach(function(c){soldSet.add(c);});
   });
   const met  = metSet.size>0  ? Math.max(metSet.size, soldSet.size)
-                               : reps.reduce(function(s,r){return s+(r.outletCount||0);},0);
+                               : repsForWork.reduce(function(s,r){return s+(r.outletCount||0);},0);
   const sold = soldSet.size>0 ? soldSet.size
-                               : reps.reduce(function(s,r){return s+(r.soldCount||0);},0);
-  // Target = sum of this ASM's reps' individual targets × blended price
+                               : repsForWork.reduce(function(s,r){return s+(r.soldCount||0);},0);
+  // Target = sum of this ASM's non-vacant reps' individual targets × blended price
   const asmTargetCases = allRepsInASM.reduce(function(s,r){return s+(r.targetCases||0);},0);
   const asmTargetRev   = T.blendedPrice ? Math.round(asmTargetCases * T.blendedPrice) : 0;
   return{
-    revenue:     reps.reduce(function(s,r){return s+r.revenue;},0),
-    cases:       reps.reduce(function(s,r){return s+r.cases;},0),
+    revenue:     repsForWork.reduce(function(s,r){return s+r.revenue;},0),
+    cases:       repsForWork.reduce(function(s,r){return s+r.cases;},0),
     att:         allRepsInASM.length,
     met, sold,
     targetCases: asmTargetCases,
@@ -2863,7 +2882,7 @@ function renderOV(){try{
   const dates=Object.keys(D.dailyAll).sort();
   if(dates.length) document.getElementById('ov-period').textContent=dates[0]+' → '+dates[dates.length-1];
   // Overall compliance = average across non-manager reps only
-  const allReps = Object.values(D.reps).filter(r=>!r.isManager);
+  const allReps = Object.values(D.reps).filter(r=>!r.isManager && !r.isVacant);
   const overallCompliance = allReps.length>0 ? allReps.reduce((s,r)=>s+(r.compliance||0),0)/allReps.length : 0;
   const compliantTotal = allReps.filter(r=>(r.compliance||0)>=100).length;
 
@@ -2874,15 +2893,19 @@ function renderOV(){try{
 
   // Productive reps: filter by ASM if active
   const allActiveReps = activeASM
-    ? Object.values(D.reps).filter(r=>!r.isManager && r.asm===activeASM)
-    : Object.values(D.reps).filter(r=>!r.isManager);
+    ? Object.values(D.reps).filter(r=>!r.isManager && !r.isVacant && r.asm===activeASM)
+    : Object.values(D.reps).filter(r=>!r.isManager && !r.isVacant);
   const productiveReps = allActiveReps.filter(r=>r.revenue>0).length;
 
   const _ovI = D.intel||{}, _ovDg = _ovI.workDaysGone||1, _ovDm = _ovI.workDaysInMonth||22;
-  const _ovAllReps = allActiveReps.filter(r=>!r.isManager);
-  // Team target = active reps × monthly target (220 regular, 120 KA) — no proration
+  const _ovAllReps = allActiveReps.filter(r=>!r.isManager && !r.isVacant);
+  // Team target = active reps × monthly target (220 regular, 120 KA) — no proration.
+  // Vacant accounts are excluded here because there's no person assigned to hit a target.
   const _ovTeamTgt = _ovAllReps.reduce(function(s,r){ return s + repOutletTarget(r.region); }, 0);
-  const _ovActual  = _ovAllReps.reduce(function(s,r){return s+(r.outletCount||0);},0);
+  // Actual outlets visited — pulls from o.met (region-aggregated) so vacant-account
+  // outlet visits ARE counted toward the team total, even though those reps don't
+  // appear in per-rep displays. Their work happened and matters for regional totals.
+  const _ovActual  = o.met || 0;
   document.getElementById('ov-kpis').innerHTML=
     tgtCard('Total MTD Revenue', o.revenue, totalTargetRev, {valCls:'c-g', sub: activeASM ? activeASM : 'All Regions'})
    +tgtCard('Total Cases Sold',  o.cases,   totalTargetCases, {valCls:'', sub:'Units', isCases:true})
@@ -2903,10 +2926,10 @@ function renderOV(){try{
   const rgnDataArr = regionsToShow.map(function(r){
     const rd  = fRegion(r);
     const rgt = activeASM
-      ? Math.round(Object.values(D.reps).filter(function(rep){return !rep.isManager && rep.asm===activeASM && rep.region===r;}).reduce(function(s,rep){return s+(rep.targetCases||0);},0) * (T.blendedPrice||0))
+      ? Math.round(Object.values(D.reps).filter(function(rep){return !rep.isManager && !rep.isVacant && rep.asm===activeASM && rep.region===r;}).reduce(function(s,rep){return s+(rep.targetCases||0);},0) * (T.blendedPrice||0))
       : (T.regRevTargets && T.regRevTargets[r]) || 0;
     const rct = activeASM
-      ? Object.values(D.reps).filter(function(rep){return !rep.isManager && rep.asm===activeASM && rep.region===r;}).reduce(function(s,rep){return s+(rep.targetCases||0);},0)
+      ? Object.values(D.reps).filter(function(rep){return !rep.isManager && !rep.isVacant && rep.asm===activeASM && rep.region===r;}).reduce(function(s,rep){return s+(rep.targetCases||0);},0)
       : (T.regTargets && T.regTargets[r]) || 0;
     if(!rgt && !rct) return null;
     const revPct = rgt>0 ? Math.min(rd.revenue/rgt*100, 999) : null;
@@ -3188,17 +3211,20 @@ function renderGMD(){try{
   const wDaysInMonth = daysTotal;
   const gmdTargetRev   = o.targetRev   || 0;
   const gmdTargetCases = o.targetCases || 0;
-  const _gmdActiveReps = Object.values(D.reps).filter(r=>!r.isManager&&(activeASM?r.asm===activeASM:true));
-  // Team target = active reps × monthly target (220 regular, 120 KA) — no proration
+  const _gmdActiveReps = Object.values(D.reps).filter(r=>!r.isManager && !r.isVacant && (activeASM?r.asm===activeASM:true));
+  // Team target = active reps × monthly target (220 regular, 120 KA) — no proration.
+  // Vacant accounts excluded — no person to hit a target.
   const _gmdTeamTgt = _gmdActiveReps.reduce(function(s,r){ return s + repOutletTarget(r.region); }, 0);
-  const _gmdOvAct   = _gmdActiveReps.reduce(function(s,r){return s+(r.outletCount||0);},0);
+  // Actual outlets visited: use o.met (region-aggregated, ASM-aware) so vacant-account
+  // outlet visits ARE counted in the team total even though they're hidden in rep lists.
+  const _gmdOvAct   = o.met || 0;
   document.getElementById('gmd-kpis').innerHTML=
     tgtCard('MTD Total Revenue',   o.revenue,        gmdTargetRev,   {valCls:'c-a', cls:'a', sub:'All regions combined'})
    +tgtCard('Projected Month-End', projected,        gmdTargetRev,   {valCls:'c-g', sub:'Run rate × '+daysInMth+' days'})
    +tgtCard('Total Cases',         o.cases,          gmdTargetCases, {valCls:'', sub:'Units sold MTD', isCases:true})
    +tgtCard('Outlets Visited', _gmdOvAct, _gmdTeamTgt, {valCls:'c-b', isCases:true, sub:'Day '+wDaysElapsed+' pace · 220/rep (120 for KA)'})
    +`<div class="kc b"><div class="kc-lbl">Active Reps</div><div class="kc-val c-b">${o.att}</div><div class="kc-sub">Checked in (incl. zero-rev)</div></div>`
-   +`<div class="kc"><div class="kc-lbl">Productive Reps</div><div class="kc-val c-g">${Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length}</div><div class="kc-sub">Reps with revenue > ₦0</div></div>`
+   +`<div class="kc"><div class="kc-lbl">Productive Reps</div><div class="kc-val c-g">${Object.values(D.reps).filter(r=>r.revenue>0 && !r.isManager && !r.isVacant).length}</div><div class="kc-sub">Reps with revenue > ₦0</div></div>`
    +`<div class="kc"><div class="kc-lbl">Customers Sold</div><div class="kc-val c-g">${fn(o.sold)}</div><div class="kc-sub">Unique MTD</div></div>`
    +`<div class="kc p"><div class="kc-lbl">Conv. Rate</div><div class="kc-val c-p">${fp(o.met>0?o.sold/o.met*100:0)}</div><div class="kc-sub">Sold ÷ Outlets visited</div></div>`
    +`<div class="kc p"><div class="kc-lbl">Drop Size</div><div class="kc-val c-p">${overallDropSize}</div><div class="kc-sub">Avg cases per customer</div></div>`
@@ -3234,7 +3260,7 @@ function renderGMD(){try{
   // Revenue per rep per day — first half vs second half (only when we have att data)
   // We use overall att count as proxy since we don't have daily att splits
   const revPerRepDay = o.att > 0 ? Math.round(dailyRun / o.att) : 0;
-  const prodRepCount = Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length;
+  const prodRepCount = Object.values(D.reps).filter(r=>r.revenue>0 && !r.isManager && !r.isVacant).length;
   const revPerProdRepDay = prodRepCount > 0 ? Math.round(dailyRun / prodRepCount) : 0;
 
   document.getElementById('gmd-pace').innerHTML=`
@@ -3303,7 +3329,7 @@ function renderGMD(){try{
     const dsScore = dsRaw>=3?'grn':dsRaw>=1.5?'amb':'red';
 
     // 4. ATTENDANCE RATE: active reps vs total reps in region (from atte sheets)
-    const totalRepsInRegion = Object.values(D.reps).filter(function(rep){return !rep.isManager && rep.region===r;}).length || rd.attCount;
+    const totalRepsInRegion = Object.values(D.reps).filter(function(rep){return !rep.isManager && !rep.isVacant && rep.region===r;}).length || rd.attCount;
     const attRate = totalRepsInRegion>0 ? rd.attCount/totalRepsInRegion*100 : 100;
     const attScore = attRate>=85?'grn':attRate>=65?'amb':'red';
 
@@ -3412,7 +3438,7 @@ function renderGMD(){try{
     const totalRepsByRgn = {};
     for(const code in D.reps){
       const rep=D.reps[code];
-      if(rep.region && !rep.isManager) totalRepsByRgn[rep.region]=(totalRepsByRgn[rep.region]||0)+1;
+      if(rep.region && !rep.isManager && !rep.isVacant) totalRepsByRgn[rep.region]=(totalRepsByRgn[rep.region]||0)+1;
     }
 
     const tv = o.revenue||1;
@@ -3609,13 +3635,13 @@ function renderGMDBriefing(){
   const ym  = I.dominantYM || '';
   const mon = ym ? (function(){ var d=new Date(ym+'-01'); return d.toLocaleDateString('en-GB',{month:'long',year:'numeric'}); })() : 'Current Month';
 
-  const allReps    = Object.values(D.reps).filter(function(r){ return !r.isManager; });
+  const allReps    = Object.values(D.reps).filter(function(r){ return !r.isManager && !r.isVacant; });
   const activeReps = allReps.filter(function(r){ return r.revenue>0||r.cases>0; });
   const tgtRev     = T.totalTargetRev||0, tgtCas = T.totalTargetCases||0;
   const totRev     = ov.revenue||0, totCas = ov.cases||0;
   const revP       = tgtRev>0 ? totRev/tgtRev/pct*100 : 0;
   const casP       = tgtCas>0 ? totCas/tgtCas/pct*100 : 0;
-  const totOv      = activeReps.reduce(function(s,r){return s+(r.outletCount||0);},0);
+  const totOv      = ov.met || 0;   // region-aggregated total; includes vacant-account outlet work
   const ovTgt      = activeReps.reduce(function(s,r){ return s + repOutletTarget(r.region); }, 0);
   const ovP        = ovTgt>0 ? totOv/ovTgt*100 : 0;
   const conv       = ov.att>0 ? ov.sold/ov.att*100 : 0;
@@ -3628,7 +3654,7 @@ function renderGMDBriefing(){
     const rTgt = rRps.reduce(function(s,x){return s+(x.targetCases||0);},0);
     const rAch = rTgt>0&&pct>0 ? rd.cases/rTgt/pct*100 : 0;
     const rCnv = rd.attCount>0 ? (rd.custsSold?rd.custsSold.size:0)/rd.attCount*100 : 0;
-    const rOvActual = rRps.reduce(function(s,x){return s+(x.outletCount||0);},0);
+    const rOvActual = rd.metCount || 0;   // region total; includes vacant work
     const rOvTgt    = rRps.reduce(function(s,x){ return s + Math.round(repOutletTarget(x.region) / dm * dg); }, 0);
     const rOvP = rOvTgt>0 ? rOvActual/rOvTgt*100 : 0;
     return {name:r, rev:rd.revenue||0, cases:rd.cases||0, rAch, rCnv, rOvP};
@@ -3823,7 +3849,7 @@ function renderRgn(regName){
   const _monthlyRepTgt = repOutletTarget(regName);
   const ovRepTarget  = _monthlyRepTgt;
   const ovRegTarget  = ovRepTarget * reps.length;
-  const ovRegActual   = reps.reduce(function(s,r){return s+(r.outletCount||0);},0);
+  const ovRegActual   = rd.metCount || 0;   // includes vacant-account outlet work
 
   /* ── Top 3 / Bottom 3 reps ── */
   const medals = ['🥇','🥈','🥉'];
@@ -3878,10 +3904,10 @@ function renderRgn(regName){
   let tblRows = '';
   const T = D.targets || {};
   const rgt = activeASM
-    ? Math.round(Object.values(D.reps).filter(function(rep){return !rep.isManager && rep.asm===activeASM && rep.region===regName;}).reduce(function(s,rep){return s+(rep.targetCases||0);},0) * (T.blendedPrice||0))
+    ? Math.round(Object.values(D.reps).filter(function(rep){return !rep.isManager && !rep.isVacant && rep.asm===activeASM && rep.region===regName;}).reduce(function(s,rep){return s+(rep.targetCases||0);},0) * (T.blendedPrice||0))
     : (T.regRevTargets && T.regRevTargets[regName]) || 0;
   const rct = activeASM
-    ? Object.values(D.reps).filter(function(rep){return !rep.isManager && rep.asm===activeASM && rep.region===regName;}).reduce(function(s,rep){return s+(rep.targetCases||0);},0)
+    ? Object.values(D.reps).filter(function(rep){return !rep.isManager && !rep.isVacant && rep.asm===activeASM && rep.region===regName;}).reduce(function(s,rep){return s+(rep.targetCases||0);},0)
     : (T.regTargets && T.regTargets[regName]) || 0;
   const rPct = rgt>0 ? Math.min(rd.revenue/rgt*100,999) : null;
   const rPctColor = rPct===null?'var(--dim)':rPct>=100?'var(--grn)':rPct>=75?'var(--amb)':'var(--red)';
@@ -4227,7 +4253,7 @@ function renderIntel(){
   // If ASM is active, show that ASM's target; otherwise full month target
   const intelTargetRev = activeASM
     ? (function(){
-        const asmReps = Object.values(D.reps).filter(function(r){return !r.isManager && r.asm===activeASM;});
+        const asmReps = Object.values(D.reps).filter(function(r){return !r.isManager && !r.isVacant && r.asm===activeASM;});
         const cases = asmReps.reduce(function(s,r){return s+(r.targetCases||0);},0);
         return TI.blendedPrice ? Math.round(cases * TI.blendedPrice) : 0;
       })()
@@ -4237,7 +4263,7 @@ function renderIntel(){
     `<div class="kc a"><div class="kc-lbl">Days Gone / Days in Month</div><div class="kc-val c-a">${calDayGone} / ${calDaysInMth}</div><div class="kc-sub">${pctGone.toFixed(0)}% elapsed · ${daysGone} of ${daysTotal} working days (Mon-Sat)</div></div>`
    +`<div class="kc"><div class="kc-lbl">Daily Run Rate</div><div class="kc-val c-g">${fm(Math.round(dailyRun))}</div><div class="kc-sub">Avg revenue per working day</div></div>`
    +tgtCard('Projected Month-End Rev', Math.round(projected), intelTargetRev, {valCls:'c-g', sub:projLabel})
-   +`<div class="kc"><div class="kc-lbl">Revenue / Productive Rep / Day</div><div class="kc-val c-g">${fm(Math.round(dailyRun/Math.max(Object.values(D.reps).filter(r=>r.revenue>0&&!r.isManager).length,1)))}</div><div class="kc-sub">Productive reps only (revenue > ₦0)</div></div>`;
+   +`<div class="kc"><div class="kc-lbl">Revenue / Productive Rep / Day</div><div class="kc-val c-g">${fm(Math.round(dailyRun/Math.max(Object.values(D.reps).filter(r=>r.revenue>0 && !r.isManager && !r.isVacant).length,1)))}</div><div class="kc-sub">Productive reps only (revenue > ₦0)</div></div>`;
 
   /* ── Zero Revenue Reps ── */
   const attReps = fReps(null);
@@ -4715,7 +4741,7 @@ function renderASM(){
   document.getElementById('asm-body').style.display='';
 
   // Build region pills from available data
-  const allRegions = [...new Set(Object.values(D.reps).filter(function(r){return r.asm&&!r.isManager;}).map(function(r){return r.region;}))].filter(Boolean);
+  const allRegions = [...new Set(Object.values(D.reps).filter(function(r){return r.asm && !r.isManager && !r.isVacant;}).map(function(r){return r.region;}))].filter(Boolean);
   document.getElementById('asm-rgn-pills').innerHTML = ['All',...allRegions].map(function(r){
     const active = r==='All' ? !asmRgnFilter : r===asmRgnFilter;
     const col    = r==='All' ? 'var(--grn)' : (RC[r]||'var(--grn)');
