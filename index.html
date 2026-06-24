@@ -5,8 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Frutta | Secondary Sales Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
+  onerror="this.onerror=null;
+  var s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+  s.onerror=function(){
+    var s2=document.createElement('script');
+    s2.src='https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js';
+    document.head.appendChild(s2);
+  };
+  document.head.appendChild(s);"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"
+  onerror="this.onerror=null;
+  var s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
+  document.head.appendChild(s);"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <style>
 /* ═══════════════ DESIGN TOKENS ═══════════════ */
@@ -1319,6 +1332,13 @@ dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');ha
 /* ═══════════════════════════ FILE HANDLER ════════════════════ */
 function handleFile(file){
   if(!file) return;
+  // Guard: if the XLSX library hasn't loaded (all CDN fallbacks failed —
+  // usually a network/firewall block), surface a clear message instead of
+  // letting the user see an obscure ReferenceError in the console.
+  if(typeof XLSX === 'undefined'){
+    toast('⚠ Excel library could not load. Check your internet connection and refresh the page (or whitelist cdnjs.cloudflare.com / jsdelivr.net / unpkg.com).');
+    return;
+  }
   const btn=document.getElementById('upload-btn')||{textContent:'',disabled:false};
   btn.disabled=true; btn.textContent='⏳ Parsing…';
   toast('⏳ Reading '+file.name+'…');
@@ -1889,6 +1909,10 @@ function parseWB(wb){
         reg[rgn].outlets.add(custId);
         ensureRep(code, rgn, name, asm);
         reps[code].outlets.add(custId);
+        // Each OUTLET VISIT row = one visit event. Track the total VISIT COUNT
+        // separately from unique outlet coverage — the former is what SmartSeller
+        // reports as "outlets visited" and what the 220/rep target measures.
+        reps[code].visitCount = (reps[code].visitCount||0) + 1;
         // MTD attendance
         reg[rgn].att.add(code);
       }
@@ -2236,8 +2260,11 @@ function parseWB(wb){
   /* ── Rep finalisation & compliance ── */
   for(const code of Object.keys(reps)){
     const rep = reps[code];
-    // outletCount: always use unique Set from OUTLET VISIT REPORT
-    // one customer = counted once, even if visited multiple times in the month
+    // outletCount: UNIQUE outlets visited per rep. The rep.outlets Set is
+    // populated during OUTLET VISIT parsing with one entry per distinct
+    // customer code, so a rep that visited Store A three times on different
+    // days counts as 1 unique outlet here, not 3. This is the "unique visit"
+    // metric — coverage breadth rather than total visit events.
     rep.outletCount = rep.outlets instanceof Set ? rep.outlets.size : 0;
     rep.soldCount = rep.custsSold instanceof Set ? rep.custsSold.size : 0;
     // A rep cannot sell to more customers than they visited
