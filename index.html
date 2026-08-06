@@ -1493,20 +1493,44 @@ function parseWB(wb){
                    Login ID, DB Code, DB Name, ASM, ...]
      All column positions detected by header name — not hardcoded.
   ═══════════════════════════════════════════════════════════════ */
-  const wsRA = wb.Sheets['Resource Alignment'];
+  /* Accept harmless sheet-name variations such as extra spaces or underscores. */
+  const raSheetName = wb.SheetNames.find(function(n){
+    return String(n).trim().toLowerCase().replace(/[\s_-]+/g,' ') === 'resource alignment';
+  });
+  const wsRA = raSheetName ? wb.Sheets[raSheetName] : null;
 
   /* ── Declare dbMap outside so it is always in scope ── */
   const dbMap    = {};  // dbCode → {name, reps:[loginId,...], region, revenue, cases, repRevs}
   const loginToDb = {}; // loginId / salesman_code → dbCode
+
+  function dbIdVariants(v){
+    const raw = String(v == null ? '' : v).trim();
+    if(!raw) return [];
+    const compact = raw.toUpperCase().replace(/\s+/g,'');
+    const alnum = compact.replace(/[^A-Z0-9]/g,'');
+    const suffixMatch = alnum.match(/(\d+)$/);
+    const suffix = suffixMatch ? suffixMatch[1].replace(/^0+(?=\d)/,'') : '';
+    return [...new Set([raw, compact, alnum, suffix].filter(Boolean))];
+  }
+  function registerDbId(v, dbCode){
+    dbIdVariants(v).forEach(function(k){ loginToDb[k] = dbCode; });
+  }
+  function resolveDbId(){
+    for(let i=0;i<arguments.length;i++){
+      const vars = dbIdVariants(arguments[i]);
+      for(let j=0;j<vars.length;j++) if(loginToDb[vars[j]]) return loginToDb[vars[j]];
+    }
+    return null;
+  }
 
   if(wsRA){
     const raRows = XLSX.utils.sheet_to_json(wsRA, {header:1, defval:null});
 
     /* ── 1. Find header row (the row that contains "ASM" or "Login") ── */
     let raHdrRow = 0;
-    for(let i=0; i<Math.min(raRows.length,5); i++){
+    for(let i=0; i<Math.min(raRows.length,20); i++){
       const r = raRows[i];
-      if(r && r.some(c => c && /^(asm|login)/i.test(String(c).trim()))){
+      if(r && r.some(c => c && /^(asm|login|db[ _-]?code|distributor[ _-]?code)$/i.test(String(c).trim()))){
         raHdrRow = i; break;
       }
     }
@@ -1514,25 +1538,32 @@ function parseWB(wb){
 
     /* ── 2. Detect every column by its header keyword ── */
     function raCol(fallback, ...kws){ const i=colIdx(raHdr,...kws); return i>=0?i:fallback; }
+    function raColExact(fallback, aliases){
+      const clean = function(v){return String(v||'').trim().toLowerCase().replace(/[_-]+/g,' ').replace(/\s+/g,' ');};
+      const wanted = aliases.map(clean);
+      const i = raHdr.findIndex(function(h){return wanted.includes(clean(h));});
+      return i>=0 ? i : fallback;
+    }
     const raColSc    = raCol(0, 'salesman_code','salesman code','sc');
     const raColName  = raCol(1, 'fulname','fullname','full name','name');
     const raColRgn   = raCol(2, 'region');
     const raColLogin = raCol(4, 'login');
-    const raColDb    = raCol(5, 'db code','distributor code','dist code','distrib');
-    const raColDbNm  = raCol(6, 'db name','distributor name','dist name');
+    const raColDb    = raColExact(5, ['db code','distributor code','dist code','distributor id']);
+    const raColDbNm  = raColExact(6, ['db name','distributor name','dist name']);
     const raColAsm   = raCol(7, 'asm');   // ASM is after DB Code / DB Name in this sheet
 
     /* ── 3. Single pass: fill loginToASM, loginToName, bridges AND dbMap ── */
     for(let i=0; i<raRows.length; i++){
       if(i === raHdrRow) continue;          // skip header row
       const row = raRows[i];
-      if(!row || !row[raColSc]) continue;
-      const sc    = String(row[raColSc]).trim();
-      if(!sc || sc.toLowerCase()==='salesman_code' || sc.startsWith('=')) continue;
+      if(!row) continue;
+      const sc    = String(row[raColSc] ||'').trim();
+      const login = String(row[raColLogin] ||'').trim();
+      const primaryId = sc || login;
+      if(!primaryId || /^(salesman[ _]?code|login( id)?)$/i.test(primaryId) || primaryId.startsWith('=')) continue;
 
       const name   = String(row[raColName]  ||'').trim();
       const rgn    = normRgn(String(row[raColRgn]||''));
-      const login  = String(row[raColLogin] ||'').trim();
       const asm    = cleanAsm(String(row[raColAsm] ||''));
       const dbCode = String(row[raColDb]    ||'').trim();
       const dbName = String(row[raColDbNm]  ||'').trim();
@@ -1540,8 +1571,8 @@ function parseWB(wb){
       /* — loginToASM / loginToName against salesman_code — */
       /* Resource Alignment is the AUTHORITATIVE source for ASM.           */
       /* Always overwrite so stale Atte-sheet values never bleed through.  */
-      if(name) loginToName[sc] = name;
-      if(asm)  loginToASM[sc]  = asm;
+      if(name && sc) loginToName[sc] = name;
+      if(asm  && sc) loginToASM[sc]  = asm;
 
       /* — numeric suffix of login (e.g. NORSR1079 → '1079') — */
       if(login){
@@ -1579,16 +1610,16 @@ function parseWB(wb){
                                         : (rgn ? ('⚠ Unassigned ('+rgn+')') : null);
       if(_effectiveDb){
         // Index by every possible key a sales row might use to look up this rep's DB
-        loginToDb[sc] = _effectiveDb;                                          // e.g. '1249' or 'KALM1249'
-        if(login) loginToDb[login] = _effectiveDb;                             // e.g. 'KALM1249'
+        registerDbId(sc, _effectiveDb);                                        // e.g. '1249' or 'KALM1249'
+        registerDbId(login, _effectiveDb);                                     // e.g. 'KALM1249'
         // Numeric-only suffix of sc (e.g. 'KALM1249' → '1249')
         const scSuffix = sc.replace(/^[A-Z]+/i,'');
-        if(scSuffix && /^\d+$/.test(scSuffix) && scSuffix !== sc) loginToDb[scSuffix] = _effectiveDb;
+        if(scSuffix && /^\d+$/.test(scSuffix) && scSuffix !== sc) registerDbId(scSuffix, _effectiveDb);
         // Numeric-only suffix of login (e.g. 'KALM1249' → '1249')
         if(login){
           const loginSuffix = login.replace(/^[A-Z]+/i,'');
           if(loginSuffix && /^\d+$/.test(loginSuffix) && loginSuffix !== sc && loginSuffix !== scSuffix){
-            loginToDb[loginSuffix] = _effectiveDb;
+            registerDbId(loginSuffix, _effectiveDb);
           }
         }
         if(!dbMap[_effectiveDb]){
@@ -1606,6 +1637,30 @@ function parseWB(wb){
   } else {
     console.warn('[DB] "Resource Alignment" sheet NOT found — DB Performance tab will be empty. Expected sheet name: "Resource Alignment"');
   }
+
+  /* Confirmed assignment corrections. Product Sales has no DB-code column,
+     so stable rep IDs are used when an alignment export is stale. */
+  const DB_ASSIGNMENT_OVERRIDES = [
+    {ids:['1085','SSTSR1085'], dbCode:'C100983', dbName:'BRIJ INTEGRATED CONCEPT'}
+  ];
+  DB_ASSIGNMENT_OVERRIDES.forEach(function(o){
+    const target = dbMap[o.dbCode];
+    if(!target){
+      console.warn('[DB override] Target DB not found:', o.dbCode, o.dbName);
+      return;
+    }
+    const overrideKeys = new Set(o.ids.flatMap(dbIdVariants));
+    Object.values(dbMap).forEach(function(db){
+      db.reps = (db.reps||[]).filter(function(repId){
+        return !dbIdVariants(repId).some(function(k){return overrideKeys.has(k);});
+      });
+    });
+    o.ids.forEach(function(id){
+      registerDbId(id, o.dbCode);
+      if(!target.reps.includes(id)) target.reps.push(id);
+    });
+    console.log('[DB override]', o.ids.join('/'), '->', o.dbCode, o.dbName);
+  });
 
   /* ═══════════════════════════════════════════════════════════════
      STEP 1: ALL ATTE SHEETS — build loginToASM, loginToName, att counts
@@ -2115,10 +2170,10 @@ function parseWB(wb){
         const _codeSuffix = code.replace(/^[A-Z]+/i,'');  // e.g. 'KALM1249' → '1249'
         const _rawCol1    = String(rowS[1]||'').trim();    // numeric salesman_code col
         // Try every variant: resolved login, code itself, raw numeric sc, numeric suffix
-        const _dbCode = loginToDb[_login] || loginToDb[code] || loginToDb[_rawCol1]
-                      || (_codeSuffix && loginToDb[_codeSuffix])
-                      || loginToDb[numericToLogin[_rawCol1]]  // numeric sc → KAT/KALM login → dbCode
-                      || loginToDb[numericToLogin[_codeSuffix]]; // suffix → login → dbCode
+        const _dbCode = resolveDbId(
+          _login, code, _rawCol1, _codeSuffix,
+          numericToLogin[_rawCol1], numericToLogin[_codeSuffix]
+        );
         if(_dbCode && dbMap[_dbCode]){
           dbMap[_dbCode].revenue += amt;
           dbMap[_dbCode].cases   += qty;
@@ -4742,6 +4797,39 @@ function showLiveBadge(isoDate){
 const GITHUB_USER = 'excellent5647';
 const GITHUB_REPO = 'FRUTTA-SECONDARY-SALES-DASHBOARD-';
 
+/* Repair confirmed DB assignments in already-published data. The Excel parser
+   applies the same correction, but live JSON bypasses parseWB entirely. */
+function repairPublishedDBAssignments(data, monthKey){
+  if(!data || !data.dbMap || (monthKey && monthKey!=='AUGUST 2026')) return;
+  const target = data.dbMap['C100983']; // BRIJ INTEGRATED CONCEPT
+  if(!target) return;
+  target.reps = target.reps || [];
+  target.repRevs = target.repRevs || {};
+  const ids = ['1085','SSTSR1085'];
+
+  Object.entries(data.dbMap).forEach(function([dbCode,db]){
+    if(dbCode==='C100983') return;
+    db.reps = (db.reps||[]).filter(function(id){return !ids.includes(String(id));});
+    ids.forEach(function(id){
+      const sale = db.repRevs && db.repRevs[id];
+      if(!sale) return;
+      const existing = target.repRevs[id];
+      if(existing){
+        existing.revenue = (existing.revenue||0) + (sale.revenue||0);
+        existing.cases = (existing.cases||0) + (sale.cases||0);
+      } else {
+        target.repRevs[id] = Object.assign({},sale);
+      }
+      target.revenue = (target.revenue||0) + (sale.revenue||0);
+      target.cases = (target.cases||0) + (sale.cases||0);
+      db.revenue = Math.max(0,(db.revenue||0) - (sale.revenue||0));
+      db.cases = Math.max(0,(db.cases||0) - (sale.cases||0));
+      delete db.repRevs[id];
+    });
+  });
+  ids.forEach(function(id){if(!target.reps.includes(id)) target.reps.push(id);});
+}
+
 async function loadLiveData(silent){
   const publicUrl = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data.json?_=${Date.now()}`;
   try{
@@ -4752,6 +4840,7 @@ async function loadLiveData(silent){
     // Support both new multi-month format and old single-month format
     if(json && json.months && Object.keys(json.months).length){
       MONTHS = json.months;
+      Object.keys(MONTHS).forEach(function(k){repairPublishedDBAssignments(MONTHS[k],k);});
       activeMonth = json.activeMonth || Object.keys(MONTHS)[Object.keys(MONTHS).length-1];
       D = MONTHS[activeMonth];
       buildMonthSwitcher();
@@ -4762,6 +4851,7 @@ async function loadLiveData(silent){
     } else if(json && json.data){
       // Legacy single-month fallback
       D = json.data;
+      repairPublishedDBAssignments(D,null);
       buildASMBar();
       renderAll();
       showLiveBadge(json.publishedAt||null);
@@ -5066,7 +5156,6 @@ function renderDB(){
       return (d.name||'').toLowerCase().includes(dbSearchTerm) || (code||'').toLowerCase().includes(dbSearchTerm);
     })
     .map(function([code,d]){ return {...d, code}; })
-    .filter(function(d){ return d.revenue > 0; })
     .sort(function(a,b){ return b.revenue - a.revenue; });
 
   // Toggle clear button visibility
@@ -5074,7 +5163,7 @@ function renderDB(){
   if(_clrBtn) _clrBtn.style.display = dbSearchTerm ? '' : 'none';
 
   if(!dbs.length){
-    document.getElementById('db-content').innerHTML='<div class="empty"><div class="ico">🔍</div><h3>No DB data found</h3><p>No revenue recorded for this filter</p></div>';
+    document.getElementById('db-content').innerHTML='<div class="empty"><div class="ico">🔍</div><h3>No DB data found</h3><p>No distributor matches this region or search filter</p></div>';
     return;
   }
 
@@ -5119,6 +5208,7 @@ function renderDB(){
         +'<span style="font-family:var(--fb);font-size:14px;font-weight:700;color:var(--txt)">'+db.name+'</span>'
         +'<span style="font-family:var(--fm);font-size:9px;color:'+rgnColor+';text-transform:uppercase;letter-spacing:1px;border:1px solid '+rgnColor+'33;padding:2px 8px;border-radius:10px">'+db.region+'</span>'
         +'<span style="font-family:var(--fm);font-size:9px;color:var(--dim)">'+db.code+'</span>'
+        +(db.revenue<=0?'<span style="font-family:var(--fm);font-size:9px;padding:2px 8px;border-radius:10px;border:1px solid rgba(245,166,35,.4);color:var(--amb);background:var(--ambd)">NO MATCHED SALES</span>':'')
         +(stockStatus?'<span style="font-family:var(--fm);font-size:9px;padding:2px 8px;border-radius:10px;border:1px solid '+(stockStatus.toLowerCase().includes('expiry')?'rgba(245,166,35,.4)':'rgba(0,229,160,.3)')+';color:'+(stockStatus.toLowerCase().includes('expiry')?'var(--amb)':'var(--grn)')+'">'+stockStatus+'</span>':'')
         +'<div style="margin-left:auto;display:flex;gap:14px;align-items:center;flex-wrap:wrap">'
           +'<div style="text-align:right">'
@@ -5223,7 +5313,6 @@ function exportDBAll(regionOverride){
   const allDbs = Object.entries(D.dbMap)
     .map(function([code,d]){ return Object.assign({},d,{code:code}); })
     .filter(function(d){
-      if(!d.revenue) return false;
       if(activeRegion) return (d.region||'').toUpperCase() === activeRegion.toUpperCase();
       return true;
     })
