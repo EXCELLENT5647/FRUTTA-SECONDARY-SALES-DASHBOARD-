@@ -1871,26 +1871,9 @@ function parseWB(wb){
     if(rows.length > 0){
       const hdr = rows[0] || [];
 
-      // Detect customer name column — must NOT match visitcode or cust_code
-      // Priority: exact 'cust_name' > 'cust name' > 'customer' > 'outlet'
-      let custCol = -1;
-      (function(){
-        const exactMatches = ['cust_name','cust name','customer name'];
-        for(const kw of exactMatches){
-          const idx = hdr.findIndex(function(v){ return String(v||'').toLowerCase().trim() === kw; });
-          if(idx >= 0){ custCol = idx; return; }
-        }
-        // Loose: contains 'cust' but NOT 'code' and NOT 'visit'
-        for(let i=0;i<hdr.length;i++){
-          const h = String(hdr[i]||'').toLowerCase();
-          if(h.includes('cust') && !h.includes('code') && !h.includes('visit')){ custCol=i; return; }
-        }
-        // Contains 'outlet' or 'customer'
-        const idx2 = hdr.findIndex(function(v){ const h=String(v||'').toLowerCase(); return h.includes('outlet')||h.includes('customer'); });
-        if(idx2>=0) custCol=idx2;
-      })();
-
-      // Detect salesman_code column — numeric rep code (NOT visitcode, NOT cust_code)
+      // Detect salesman_code column FIRST — numeric rep code (NOT visitcode, NOT cust_code).
+      // This one is unambiguous (only one column is ever literally named 'salesman_code'),
+      // so we anchor the cust_name/cust_code/login detection off it below.
       // Priority: exact 'salesman_code' > 'salesman code' > 'sr code' > 'rep code' > 'staff code'
       let codeCol = -1;
       (function(){
@@ -1906,18 +1889,53 @@ function parseWB(wb){
         }
       })();
 
-      // Detect login column
-      let loginCol = hdr.findIndex(function(v){
-        const h = String(v||'').toLowerCase().trim();
-        return h==='login' || h==='login id' || h==='login_id';
-      });
-      if(loginCol<0) loginCol = colIdx(hdr,'login id','login','user id');
+      // Some OUTLET VISIT exports carry a stray leftover pair of visitcode/cust_name/cust_code
+      // columns (e.g. from a merged/pasted second table) earlier in the row, BEFORE the columns
+      // that are actually paired, row-for-row, with salesman_code/login/fullname for this visit.
+      // A plain first-match findIndex on 'cust_name'/'cust_code' would silently grab that
+      // unrelated leftover pair instead of the real one — pairing the right rep with the
+      // wrong outlet on every row. So: collect every column matching a label, then pick
+      // whichever match sits closest to codeCol (the one column we can detect unambiguously),
+      // since the real visit columns always sit immediately next to salesman_code.
+      function allIdx(matchFn){
+        const out = [];
+        for(let i=0;i<hdr.length;i++){ if(matchFn(String(hdr[i]||'').toLowerCase().trim())) out.push(i); }
+        return out;
+      }
+      function pickNearest(indices, anchor){
+        if(indices.length===0) return -1;
+        if(anchor<0) return indices[0];
+        let best = indices[0], bestDist = Math.abs(indices[0]-anchor);
+        for(const idx of indices){
+          const d = Math.abs(idx-anchor);
+          if(d<bestDist){ best=idx; bestDist=d; }
+        }
+        return best;
+      }
 
-      // Detect customer unique ID column (cust_code) for deduplication
+      // Detect customer name column — must NOT match visitcode or cust_code
+      // Priority: exact 'cust_name' > 'cust name' > 'customer' > 'outlet'
+      let custCol = -1;
+      (function(){
+        let cands = allIdx(function(h){ return h==='cust_name'||h==='cust name'||h==='customer name'; });
+        if(cands.length===0) cands = allIdx(function(h){ return h.includes('cust') && !h.includes('code') && !h.includes('visit'); });
+        if(cands.length===0) cands = allIdx(function(h){ return h.includes('outlet')||h.includes('customer'); });
+        custCol = pickNearest(cands, codeCol);
+      })();
+
+      // Detect customer unique ID column (cust_code) for deduplication — same nearest-to-rep logic
       let custCodeCol = -1;
       (function(){
-        const idx = hdr.findIndex(function(v){ return String(v||'').toLowerCase().trim()==='cust_code'||String(v||'').toLowerCase().trim()==='cust code'; });
-        if(idx>=0){ custCodeCol=idx; return; }
+        const cands = allIdx(function(h){ return h==='cust_code'||h==='cust code'; });
+        custCodeCol = pickNearest(cands, codeCol);
+      })();
+
+      // Detect login column — same nearest-to-rep logic, for the same reason
+      let loginCol = -1;
+      (function(){
+        let cands = allIdx(function(h){ return h==='login'||h==='login id'||h==='login_id'; });
+        if(cands.length===0) cands = allIdx(function(h){ return h.includes('login')||h.includes('user id'); });
+        loginCol = pickNearest(cands, codeCol);
       })();
 
       // Final fallbacks using known OUTLET VISTI structure:
