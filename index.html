@@ -721,11 +721,12 @@ tr.rank-bot td{ opacity:.65; }
     <!-- WEEK-ON-WEEK BY REGION -->
     <div class="sec-label" style="display:flex;align-items:center;flex-wrap:wrap;gap:10px">
       <span><span style="color:var(--blu)">▪</span> 📅 Week-on-Week Revenue by Region</span>
-      <button onclick="exportWeeklyRevenue()" style="margin-left:auto;padding:6px 14px;background:var(--ambd);border:1px solid rgba(245,166,35,.35);border-radius:8px;color:var(--amb);font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:1px;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(245,166,35,.18)'" onmouseout="this.style.background='var(--ambd)'">⬇ DOWNLOAD</button>
+      <button onclick="exportWeeklyRevenue()" style="margin-left:auto;padding:6px 14px;background:var(--ambd);border:1px solid rgba(245,166,35,.35);border-radius:8px;color:var(--amb);font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:1px;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(245,166,35,.18)'" onmouseout="this.style.background='var(--ambd)'">⬇ DOWNLOAD EXCEL</button>
     </div>
     <div class="cg g2" style="margin-bottom:26px">
       <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Weekly Revenue by Region (₦)</div><div class="cw tall"><canvas id="c-gmd-weekly"></canvas></div></div>
-      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Week-on-Week Breakdown <span style="font-weight:400;opacity:.6;text-transform:none">(vs prior week)</span></div>
+      <div class="tb" id="gmd-weekly-tbl" style="margin-bottom:0">
+        <div class="tb-hd"><span style="color:var(--blu);font-size:13px">▪</span>&nbsp;Week-on-Week Breakdown <span style="font-weight:400;opacity:.6">(vs prior week)</span></div>
         <div style="overflow-x:auto" id="gmd-weekly-wrap"></div>
       </div>
     </div>
@@ -778,11 +779,12 @@ tr.rank-bot td{ opacity:.65; }
     <!-- WEEK-ON-WEEK BY REGION -->
     <div class="sec-label" style="display:flex;align-items:center;flex-wrap:wrap;gap:10px">
       <span><span style="color:var(--blu)">▪</span> 📅 Week-on-Week Revenue by Region</span>
-      <button onclick="exportWeeklyRevenue()" style="margin-left:auto;padding:6px 14px;background:var(--ambd);border:1px solid rgba(245,166,35,.35);border-radius:8px;color:var(--amb);font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:1px;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(245,166,35,.18)'" onmouseout="this.style.background='var(--ambd)'">⬇ DOWNLOAD</button>
+      <button onclick="exportWeeklyRevenue()" style="margin-left:auto;padding:6px 14px;background:var(--ambd);border:1px solid rgba(245,166,35,.35);border-radius:8px;color:var(--amb);font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:1px;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(245,166,35,.18)'" onmouseout="this.style.background='var(--ambd)'">⬇ DOWNLOAD EXCEL</button>
     </div>
     <div class="cg g2" style="margin-bottom:22px">
       <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Weekly Revenue by Region (₦)</div><div class="cw tall"><canvas id="c-intel-weekly"></canvas></div></div>
-      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Week-on-Week Breakdown <span style="font-weight:400;opacity:.6;text-transform:none">(vs prior week)</span></div>
+      <div class="tb" id="intel-weekly-tbl" style="margin-bottom:0">
+        <div class="tb-hd"><span style="color:var(--blu);font-size:13px">▪</span>&nbsp;Week-on-Week Breakdown <span style="font-weight:400;opacity:.6">(vs prior week)</span></div>
         <div style="overflow-x:auto" id="intel-weekly-wrap"></div>
       </div>
     </div>
@@ -2963,11 +2965,13 @@ function buildWeeklyRevenueData(){
   return {wowYM, wowWeeks, wowLabels, wowSeries};
 }
 
-/* Paints the week-on-week chart + breakdown table into the given canvas/wrap element ids. */
-function renderWeeklyRevenueUI(chartId, wrapId){
+/* Paints the week-on-week TABLE — no Chart.js dependency, so this is safe to call
+   synchronously and independently of the canvas/chart pipeline. */
+function renderWeeklyRevenueTable(wrapId){
   const {wowLabels, wowSeries} = buildWeeklyRevenueData();
   const wrapEl = document.getElementById(wrapId);
-  if(wrapEl) wrapEl.innerHTML =
+  if(!wrapEl) return;
+  wrapEl.innerHTML =
     '<table><thead><tr><th>Region</th>'
     + wowLabels.map(l=>'<th>'+l+'</th>').join('')
     + '</tr></thead><tbody>'
@@ -2986,7 +2990,24 @@ function renderWeeklyRevenueUI(chartId, wrapId){
         return '<tr><td style="color:'+s.color+';font-weight:800;font-family:var(--fn)">'+s.label+'</td>'+cells+'</tr>';
       }).join('')
     + '</tbody></table>';
-  if(document.getElementById(chartId)) lineCh(chartId, wowLabels, wowSeries);
+}
+
+/* Paints the week-on-week LINE CHART. Wrapped in its own try/catch and meant to be called
+   as the FIRST chart draw in whatever setTimeout batch it lives in — so if Chart.js failed
+   to load, or a LATER chart call throws, this chart (and the table above, which never
+   depends on Chart.js) still render instead of silently going blank. */
+function renderWeeklyRevenueChart(chartId){
+  if(!document.getElementById(chartId)) return;
+  try{
+    const {wowLabels, wowSeries} = buildWeeklyRevenueData();
+    lineCh(chartId, wowLabels, wowSeries);
+  }catch(e){ console.error('[WoW chart]', e); }
+}
+
+/* Convenience wrapper: table + chart together. */
+function renderWeeklyRevenueUI(chartId, wrapId){
+  renderWeeklyRevenueTable(wrapId);
+  renderWeeklyRevenueChart(chartId);
 }
 
 /* Downloads the week-on-week revenue-by-region breakdown as an Excel file. */
@@ -3619,7 +3640,14 @@ function renderGMD(){try{
   /* ── CHARTS ── */
   const dates=Object.keys(D.dailyAll).sort(), dl=dates.map(d=>d.slice(5));
 
+  // Table has no Chart.js dependency — build it immediately so it's never at the mercy
+  // of an earlier chart call failing (blocked CDN, ad-blocker, etc).
+  renderWeeklyRevenueTable('gmd-weekly-wrap');
+
   setTimeout(()=>{
+    // Drawn FIRST and self-contained (try/catch inside), so a failure in any of the
+    // other charts below can't take this one down with it, and vice versa.
+    renderWeeklyRevenueChart('c-gmd-weekly');
     barCh('c-gmd-rev',REGIONS,REGIONS.map(r=>rdMap[r].revenue),REGIONS.map(r=>RC[r]));
     barCh('c-gmd-cas',REGIONS,REGIONS.map(r=>rdMap[r].cases),REGIONS.map(r=>RC[r]));
     barCh('c-gmd-con',REGIONS,REGIONS.map(r=>rdMap[r].conv),REGIONS.map(r=>RC[r]));
@@ -3631,7 +3659,6 @@ function renderGMD(){try{
       {label:'SOUTH',data:dates.map(d=>D.daily.SOUTH?.[d]||0),color:'#ff6b9d'},
       {label:'KEY ACCT',data:dates.map(d=>D.daily['Key Acct']?.[d]||0),color:'#ff4757'},
     ]);
-    renderWeeklyRevenueUI('c-gmd-weekly','gmd-weekly-wrap');
   },60);
 
   /* ── ENRICHED SCORECARD ── */
@@ -4456,7 +4483,7 @@ function renderIntel(){
   const I=D.intel, o=fOverall();
   const tv=o.revenue||1;
 
-  document.getElementById('intel-weekly-wrap') && renderWeeklyRevenueUI(null,'intel-weekly-wrap');
+  renderWeeklyRevenueTable('intel-weekly-wrap');
 
   /* ── Run Rate & Projection ── */
   const daysGone  = I.workDaysGone||1;
@@ -4727,6 +4754,9 @@ function renderIntel(){
 
   /* ── Charts ── */
   setTimeout(function(){
+    // Drawn FIRST and self-contained, so it can't be taken down by (or take down) the charts below.
+    renderWeeklyRevenueChart('c-intel-weekly');
+
     // Brand doughnut
     doughnutCh('c-intel-brand',
       brandsSorted.map(function(e){return e[0];}),
@@ -4768,8 +4798,6 @@ function renderIntel(){
       atvRgns,
       atvRgns.map(function(r){const rd=D.regions[r]; return rd.attCount>0?Math.round(rd.cases/rd.attCount):0;}),
       atvRgns.map(function(r){return RC[r];}));
-
-    renderWeeklyRevenueUI('c-intel-weekly','intel-weekly-wrap');
   },100);
 
   /* Force export buttons on ALL Intel tables after full render */
