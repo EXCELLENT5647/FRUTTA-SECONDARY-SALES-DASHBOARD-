@@ -718,6 +718,18 @@ tr.rank-bot td{ opacity:.65; }
       </div>
     </div>
 
+    <!-- WEEK-ON-WEEK BY REGION -->
+    <div class="sec-label" style="display:flex;align-items:center;flex-wrap:wrap;gap:10px">
+      <span><span style="color:var(--blu)">▪</span> 📅 Week-on-Week Revenue by Region</span>
+      <button onclick="exportWeeklyRevenue()" style="margin-left:auto;padding:6px 14px;background:var(--ambd);border:1px solid rgba(245,166,35,.35);border-radius:8px;color:var(--amb);font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:1px;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(245,166,35,.18)'" onmouseout="this.style.background='var(--ambd)'">⬇ DOWNLOAD</button>
+    </div>
+    <div class="cg g2" style="margin-bottom:26px">
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Weekly Revenue by Region (₦)</div><div class="cw tall"><canvas id="c-gmd-weekly"></canvas></div></div>
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Week-on-Week Breakdown <span style="font-weight:400;opacity:.6;text-transform:none">(vs prior week)</span></div>
+        <div style="overflow-x:auto" id="gmd-weekly-wrap"></div>
+      </div>
+    </div>
+
     <!-- ROOT CAUSE BREAKDOWN -->
     <div class="sec-label"><span style="color:var(--red)">▪</span> 🔍 Root Cause Breakdown — Revenue Gap Analysis</div>
     <div id="gmd-rootcause" style="margin-bottom:26px"></div>
@@ -762,6 +774,18 @@ tr.rank-bot td{ opacity:.65; }
     <!-- RUN RATE -->
     <div class="sec-label"><span style="color:var(--amb)">▪</span> Month-End Projection & Run Rate</div>
     <div class="kg" id="intel-runrate"></div>
+
+    <!-- WEEK-ON-WEEK BY REGION -->
+    <div class="sec-label" style="display:flex;align-items:center;flex-wrap:wrap;gap:10px">
+      <span><span style="color:var(--blu)">▪</span> 📅 Week-on-Week Revenue by Region</span>
+      <button onclick="exportWeeklyRevenue()" style="margin-left:auto;padding:6px 14px;background:var(--ambd);border:1px solid rgba(245,166,35,.35);border-radius:8px;color:var(--amb);font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:1px;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(245,166,35,.18)'" onmouseout="this.style.background='var(--ambd)'">⬇ DOWNLOAD</button>
+    </div>
+    <div class="cg g2" style="margin-bottom:22px">
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Weekly Revenue by Region (₦)</div><div class="cw tall"><canvas id="c-intel-weekly"></canvas></div></div>
+      <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Week-on-Week Breakdown <span style="font-weight:400;opacity:.6;text-transform:none">(vs prior week)</span></div>
+        <div style="overflow-x:auto" id="intel-weekly-wrap"></div>
+      </div>
+    </div>
 
     <!-- AVG TXN VALUE -->
     <div class="cg g2" style="margin-bottom:22px">
@@ -2891,6 +2915,95 @@ function lineCh(id,labels,series){
     }))},options:opts,
     plugins:[ChartDataLabels]});
 }
+/* Splits a given month into WORKING weeks: Monday–Saturday, Sunday treated as a non-working
+   day and excluded entirely. Week 1 always starts on day 1 of the month (whatever weekday
+   that is) and runs through the first Saturday; every week after that starts the following
+   Monday and ends the following Saturday; the final week ends whenever the month runs out.
+   So a month starting on a Tuesday (like Sep 2026: 1-5, 7-12, 14-19, 21-26, 28-30) gets a
+   short first AND short last week, while one starting on a Thursday (Oct 2026: 1-3, 5-10,
+   12-17, 19-24, 26-31) gets an even shorter first week — matching however many working weeks
+   actually fall inside that specific month, not a fixed 4-week template. ym = 'YYYY-MM'. */
+function workWeeksForMonth(ym){
+  const parts = String(ym||'').split('-').map(Number);
+  const yr = parts[0], mo = parts[1];
+  if(!yr || !mo) return [];
+  const dim = new Date(yr, mo, 0).getDate(); // days in that month
+  const weeks = [];
+  let cur = [];
+  for(let d=1; d<=dim; d++){
+    const dow = new Date(yr, mo-1, d).getDay(); // 0=Sun...6=Sat
+    if(dow===0){ continue; } // Sunday — not a working day, excluded from every week
+    if(dow===1 && cur.length>0){ weeks.push(cur); cur=[]; } // Monday starts a new week
+    cur.push(d);
+  }
+  if(cur.length>0) weeks.push(cur);
+  return weeks.map(days=>({start:days[0], end:days[days.length-1]}));
+}
+
+/* Shared week-on-week revenue-by-region builder, used by both the GMD and Intelligence views. */
+function buildWeeklyRevenueData(){
+  const dates = Object.keys((D&&D.dailyAll)||{}).sort();
+  const I2    = (D&&D.intel)||{};
+  const wowYM = I2.dominantYM || (dates[0]||'').slice(0,7);
+  const wowWeeks = workWeeksForMonth(wowYM);
+  const wowLabels = wowWeeks.map((w,i)=> w.start===w.end ? `W${i+1} (${w.start})` : `W${i+1} (${w.start}-${w.end})`);
+  function weeklyRevByRegion(region){
+    const dm = (D&&D.daily&&D.daily[region])||{};
+    return wowWeeks.map(function(w){
+      let sum=0;
+      Object.keys(dm).forEach(function(d){
+        if(wowYM && !d.startsWith(wowYM)) return;
+        const day = parseInt(d.slice(8,10),10);
+        if(day>=w.start && day<=w.end) sum += dm[d];
+      });
+      return Math.round(sum);
+    });
+  }
+  const wowSeries = REGIONS.map(r=>({label:r==='Key Acct'?'KEY ACCT':r, data:weeklyRevByRegion(r), color:RC[r]}));
+  return {wowYM, wowWeeks, wowLabels, wowSeries};
+}
+
+/* Paints the week-on-week chart + breakdown table into the given canvas/wrap element ids. */
+function renderWeeklyRevenueUI(chartId, wrapId){
+  const {wowLabels, wowSeries} = buildWeeklyRevenueData();
+  const wrapEl = document.getElementById(wrapId);
+  if(wrapEl) wrapEl.innerHTML =
+    '<table><thead><tr><th>Region</th>'
+    + wowLabels.map(l=>'<th>'+l+'</th>').join('')
+    + '</tr></thead><tbody>'
+    + wowSeries.map(function(s){
+        const cells = s.data.map(function(v,i){
+          let deltaHtml = '';
+          if(i>0){
+            const prev = s.data[i-1];
+            const delta = prev>0 ? ((v-prev)/prev*100) : (v>0?100:0);
+            const arrow = delta>0?'▲':(delta<0?'▼':'—');
+            const color = delta>0?'var(--grn)':(delta<0?'var(--red)':'var(--dim)');
+            deltaHtml = '<div style="font-family:var(--fm);font-size:9px;color:'+color+';font-weight:700">'+arrow+' '+Math.abs(delta).toFixed(0)+'%</div>';
+          }
+          return '<td style="font-weight:700">'+fm(v)+deltaHtml+'</td>';
+        }).join('');
+        return '<tr><td style="color:'+s.color+';font-weight:800;font-family:var(--fn)">'+s.label+'</td>'+cells+'</tr>';
+      }).join('')
+    + '</tbody></table>';
+  if(document.getElementById(chartId)) lineCh(chartId, wowLabels, wowSeries);
+}
+
+/* Downloads the week-on-week revenue-by-region breakdown as an Excel file. */
+function exportWeeklyRevenue(){
+  if(!D || !D.daily){ toast('⚠ No data to export'); return; }
+  if(typeof XLSX==='undefined'){ toast('⚠ Export unavailable'); return; }
+  const {wowLabels, wowSeries, wowYM} = buildWeeklyRevenueData();
+  const rows = [['Region'].concat(wowLabels)];
+  wowSeries.forEach(function(s){ rows.push([s.label].concat(s.data)); });
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = (rows[0]||[]).map(function(_,ci){ return {wch:Math.max.apply(null,rows.map(function(r){return String(r[ci]||'').length;}).concat([10]))}; });
+  const wb2 = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb2, ws, 'Week-on-Week Revenue');
+  const fname = _expFilename('week-on-week-revenue-'+wowYM);
+  XLSX.writeFile(wb2, fname+'.xlsx');
+  toast('📊 Excel saved — '+fname+'.xlsx');
+}
 const fm=n=>'₦'+Number(n||0).toLocaleString('en-NG',{maximumFractionDigits:0});
 const fn=n=>Number(n||0).toLocaleString();
 const fp=n=>Number(n||0).toFixed(1)+'%';
@@ -3505,6 +3618,7 @@ function renderGMD(){try{
 
   /* ── CHARTS ── */
   const dates=Object.keys(D.dailyAll).sort(), dl=dates.map(d=>d.slice(5));
+
   setTimeout(()=>{
     barCh('c-gmd-rev',REGIONS,REGIONS.map(r=>rdMap[r].revenue),REGIONS.map(r=>RC[r]));
     barCh('c-gmd-cas',REGIONS,REGIONS.map(r=>rdMap[r].cases),REGIONS.map(r=>RC[r]));
@@ -3514,7 +3628,10 @@ function renderGMD(){try{
       {label:'EAST', data:dates.map(d=>D.daily.EAST?.[d] ||0),color:'#a259ff'},
       {label:'WEST', data:dates.map(d=>D.daily.WEST?.[d] ||0),color:'#f5a623'},
       {label:'LAGOS',data:dates.map(d=>D.daily.LAGOS?.[d]||0),color:'#3d9eff'},
+      {label:'SOUTH',data:dates.map(d=>D.daily.SOUTH?.[d]||0),color:'#ff6b9d'},
+      {label:'KEY ACCT',data:dates.map(d=>D.daily['Key Acct']?.[d]||0),color:'#ff4757'},
     ]);
+    renderWeeklyRevenueUI('c-gmd-weekly','gmd-weekly-wrap');
   },60);
 
   /* ── ENRICHED SCORECARD ── */
@@ -4339,6 +4456,8 @@ function renderIntel(){
   const I=D.intel, o=fOverall();
   const tv=o.revenue||1;
 
+  document.getElementById('intel-weekly-wrap') && renderWeeklyRevenueUI(null,'intel-weekly-wrap');
+
   /* ── Run Rate & Projection ── */
   const daysGone  = I.workDaysGone||1;
   const daysLeft  = I.workDaysLeft||0;
@@ -4649,6 +4768,8 @@ function renderIntel(){
       atvRgns,
       atvRgns.map(function(r){const rd=D.regions[r]; return rd.attCount>0?Math.round(rd.cases/rd.attCount):0;}),
       atvRgns.map(function(r){return RC[r];}));
+
+    renderWeeklyRevenueUI('c-intel-weekly','intel-weekly-wrap');
   },100);
 
   /* Force export buttons on ALL Intel tables after full render */
