@@ -3006,10 +3006,14 @@ function exportNcToVerify(rgn, login){
 function ncCard(rows, rgn){
   if(!rows) return '';
   const s=ncSummary(rows);
-  return '<div class="kc"><div class="kc-lbl">New Customers</div><div class="kc-val c-g">'+fn(s.n)+'</div>'
-    +'<div class="kc-sub">Secondary · created MTD · '+fn(s.b)+' bought ('+fp(s.n?s.b/s.n*100:0)+') · '+fm(s.rev)+'</div>'
-    +(s.nv?'<div class="kc-sub" style="color:var(--amb);font-weight:700;margin-top:4px">⚠ '+fn(s.nv)+' never visited — verify these outlets</div>'
-        +'<button onclick="exportNcToVerify('+(rgn?"'"+rgn+"'":'null')+',null)" style="margin-top:8px;padding:5px 10px;background:rgba(245,166,35,.12);border:1px solid rgba(245,166,35,.45);border-radius:7px;color:var(--amb);font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:1px;cursor:pointer">⬇ DOWNLOAD LIST TO VERIFY</button>':'')
+  const short=function(n){return n>=1e6?'₦'+(n/1e6).toFixed(1)+'M':n>=1e3?'₦'+Math.round(n/1e3)+'K':'₦'+fn(n);};
+  const pct=s.n?Math.round(s.b/s.n*100):0;
+  return '<div class="kc"><div class="kc-lbl">New Customers</div>'
+    +'<div class="kc-val c-g">'+fn(s.n)+'</div>'
+    +'<div class="kc-sub">'+fn(s.b)+' bought ('+pct+'%) · '+short(s.rev)+'</div>'
+    +(s.nv?'<button onclick="exportNcToVerify('+(rgn?"'"+rgn+"'":'null')+',null)" title="Created this month but never visited. Click to download the list to verify."'
+        +' style="margin-top:8px;width:100%;display:flex;align-items:center;justify-content:space-between;gap:4px;padding:4px 7px;box-sizing:border-box;background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.35);border-radius:7px;color:var(--amb);font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:0;cursor:pointer;white-space:nowrap;overflow:hidden">'
+        +'<span>⚠ '+fn(s.nv)+' to verify</span><span style="border-left:1px solid rgba(245,166,35,.35);padding-left:5px">⬇ Download</span></button>':'')
     +'</div>';
 }
 function ncListHtml(rows, key, color){
