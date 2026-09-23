@@ -678,7 +678,7 @@ tr.rank-bot td{ opacity:.65; }
       <div class="cc"><div class="cc-ttl"><span class="d">▪</span>Revenue Share by Region</div><div class="cw"><canvas id="c-ov-share"></canvas></div></div>
     </div>
     <div class="tb"><div class="tb-hd"><span style="color:var(--grn)">▪</span>Full Region Summary — Ranked by Cases Achievement</div>
-      <div style="overflow-x:auto"><table><thead><tr><th style="text-align:center">#</th><th>Region</th><th>MTD Revenue</th><th>Rev Target</th><th>Rev Ach %</th><th>Cases Ach</th><th>Cases Target</th><th>Cases Ach %</th><th>Reps</th><th>Active</th><th>Productive</th><th>Conv. Rate</th><th>Compliance <span id="ov-tbl-cmp-hdr" style="font-weight:400;font-size:9px;opacity:.7">/220</span></th></tr></thead>
+      <div style="overflow-x:auto"><table><thead><tr><th style="text-align:center">#</th><th>Region</th><th>MTD Revenue</th><th>Rev Target</th><th>Rev Ach %</th><th>Cases Ach</th><th>Cases Target</th><th>Cases Ach %</th><th>Reps</th><th>Active</th><th>Productive</th><th>New Cust.</th><th>Conv. Rate</th><th>Compliance <span id="ov-tbl-cmp-hdr" style="font-weight:400;font-size:9px;opacity:.7">/220</span></th></tr></thead>
       <tbody id="ov-tbl"></tbody></table></div>
     </div>
   </div>
@@ -1128,6 +1128,10 @@ function isManagerCode(code){
    while any revenue they logged still rolls up into regional and
    distributor totals.
    ═══════════════════════════════════════════════════════════════ */
+/* Test / admin logins (e.g. "Test Account", "Test iOS", CRMADMIN) — removed everywhere. */
+function isTestAccount(id, name){
+  return /\btest\b/i.test(String(name||'')) || /admin/i.test(String(id||''));
+}
 function isVacantName(name){
   return /vacant/i.test(String(name||'').trim());
 }
@@ -1480,6 +1484,7 @@ function parseWB(wb){
   const reps     = {};  // keyed by SALES CODE only
   const daily    = {};
   const dailyAll = {};
+  const custRev  = {};  // cust_code → {rev, cases} MTD — used by New Customers tab
 
   /* ── Numeric salesman_code → KAT login bridge (for KA reps) ── */
   const numericToLogin = {};  // e.g. '1238' → 'KATEE1238'
@@ -1570,7 +1575,7 @@ function parseWB(wb){
       const i = raHdr.findIndex(function(h){return wanted.includes(clean(h));});
       return i>=0 ? i : fallback;
     }
-    const raColSc    = raCol(0, 'salesman_code','salesman code','sc');
+    const raColSc    = raColExact(0, ['salesman code','code','sc']); // exact match — 'sc' substring used to hit 'region_deSCription'
     const raColName  = raCol(1, 'fulname','fullname','full name','name');
     const raColRgn   = raCol(2, 'region');
     const raColLogin = raCol(4, 'login');
@@ -1667,12 +1672,25 @@ function parseWB(wb){
   /* Confirmed assignment corrections. Product Sales has no DB-code column,
      so stable rep IDs are used when an alignment export is stale. */
   const DB_ASSIGNMENT_OVERRIDES = [
-    {ids:['1085','SSTSR1085'], dbCode:'C100983', dbName:'BRIJ INTEGRATED CONCEPT'}
+    // August 2026 only — from September, Resource Alignment is correct for this rep
+    {ids:['1085','SSTSR1085'], dbCode:'C100983', dbName:'BRIJ INTEGRATED CONCEPT', months:['2026-08']}
   ];
+  // Work out which month this file is for (first dated row in Sales data)
+  const _ovrYM = (function(){
+    const ws = wb.Sheets['Sales data']; if(!ws) return '';
+    const rr = XLSX.utils.sheet_to_json(ws,{header:1,defval:null});
+    for(let i=1;i<Math.min(rr.length,200);i++){
+      const v = rr[i] && rr[i][0];
+      if(v instanceof Date && !isNaN(v)) return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0');
+      const m = String(v||'').match(/^(\d{4})-(\d{2})/); if(m) return m[1]+'-'+m[2];
+    }
+    return '';
+  })();
   DB_ASSIGNMENT_OVERRIDES.forEach(function(o){
+    if(o.months && !o.months.includes(_ovrYM)) return;   // not this month — use Resource Alignment as-is
     const target = dbMap[o.dbCode];
     if(!target){
-      console.warn('[DB override] Target DB not found:', o.dbCode, o.dbName);
+      console.log('[DB override] Skipped — DB not in this file:', o.dbCode, o.dbName);
       return;
     }
     const overrideKeys = new Set(o.ids.flatMap(dbIdVariants));
@@ -2197,6 +2215,7 @@ function parseWB(wb){
         reg[rgn].revenue += amt;
         reg[rgn].cases   += qty;
         if(custCode||cust) reg[rgn].custsSold.add(custCode||cust);
+        if(custCode){ const _cr = custRev[custCode] || (custRev[custCode]={rev:0,cases:0}); _cr.rev += amt; _cr.cases += qty; }
 
         if(!daily[rgn]) daily[rgn]={};
         daily[rgn][date] = (daily[rgn][date]||0) + amt;
@@ -2225,6 +2244,14 @@ function parseWB(wb){
           dbMap[_dbCode].repRevs[code].revenue += amt;
           dbMap[_dbCode].repRevs[code].cases   += qty;
         } else if(amt > 0 && !isManagerCode(code)){
+          // Rep has no row in Resource Alignment → park revenue in the region's
+          // "Unassigned" DB so DB Performance totals still add up to regional revenue.
+          const _uk = '_UNASSIGNED_'+rgn;
+          if(!dbMap[_uk]) dbMap[_uk] = {name:'⚠ Unassigned ('+rgn+')', reps:[], region:rgn, revenue:0, cases:0, repRevs:{}};
+          dbMap[_uk].revenue += amt; dbMap[_uk].cases += qty;
+          if(!dbMap[_uk].reps.includes(code)) dbMap[_uk].reps.push(code);
+          if(!dbMap[_uk].repRevs[code]) dbMap[_uk].repRevs[code] = {name:name||reps[code].name||code, revenue:0, cases:0, asm:asm||reps[code].asm||''};
+          dbMap[_uk].repRevs[code].revenue += amt; dbMap[_uk].repRevs[code].cases += qty;
           // Log miss so you can see in browser console which codes aren't resolving.
           // Manager/ASM codes are excluded — they're not assigned to a specific
           // distributor by design, so their sales legitimately have nowhere to
@@ -2291,6 +2318,25 @@ function parseWB(wb){
     }
   }
 
+  /* ── Active reps: unique logins that actually checked in (Attendance data).
+        Excludes ASMs, vacant routes and test/admin accounts. ── */
+  const checkedIn = {};      // region -> Set(login)
+  const checkedInASM = {};   // login -> ASM
+  if(wsAD){
+    const adRows = XLSX.utils.sheet_to_json(wsAD,{header:1,defval:null});
+    let adHdrIdx = 0, lc = -1;
+    for(let i=0;i<Math.min(adRows.length,5);i++){
+      lc = (adRows[i]||[]).findIndex(h=>String(h||'').trim().toLowerCase()==='login');
+      if(lc>=0){ adHdrIdx=i; break; }
+    }
+    if(lc>=0) for(let i=adHdrIdx+1;i<adRows.length;i++){
+      const login = String((adRows[i]||[])[lc]||'').trim().toUpperCase();
+      const r = rgnFromCode(login);
+      if(!r || !reg[r] || isManagerCode(login) || isVacantName(loginToName[login]) || isTestAccount(login, loginToName[login])) continue;
+      (checkedIn[r] = checkedIn[r] || new Set()).add(login);
+      checkedInASM[login] = loginToASM[login] || '';
+    }
+  }
   /* ── Finalise region stats ── */
   // Final resolve pass: convert login IDs in att to sales codes where possible.
   // If no bridge match found, keep the original ID — dropping it causes undercounts.
@@ -2304,7 +2350,9 @@ function parseWB(wb){
   }
   for(const r of REGIONS){
     // attCount: only non-manager codes in the attendance set
-    reg[r].attCount  = [...reg[r].att].filter(code=>!isManagerCode(code)).length;
+    reg[r].attCount  = checkedIn[r] ? checkedIn[r].size
+                     : [...reg[r].att].filter(code=>!isManagerCode(code)).length;
+    reg[r].checkedInLogins = checkedIn[r] ? [...checkedIn[r]] : [];
     reg[r].soldCount = reg[r].custsSold.size;
     // metCount: sum rep outletCounts (set during Attendance data parsing from numoutletvisited)
     // Will be recalculated after rep finalisation — set placeholder from outlets Set for now
@@ -2431,6 +2479,10 @@ function parseWB(wb){
   const _dbHits = Object.values(dbMap).reduce(function(s,d){return s+(d.revenue>0?1:0);},0);
   console.log('[DB] Summary: '+Object.keys(dbMap).length+' DBs in map, '+_dbHits+' with revenue');
   if(window._dbMissLog && Object.keys(window._dbMissLog).length){
+    console.log('[DB] Reps not in Resource Alignment — their sales are shown under "⚠ Unassigned (region)" in DB Performance. Add them to Resource Alignment to assign a DB:', JSON.stringify(window._dbMissLog));
+    window._dbMissLog = {};
+  }
+  if(false){
     console.warn('[DB] Unmatched rep codes (code|login|rawCol1 : count): '
       + JSON.stringify(window._dbMissLog, null, 2));
     window._dbMissLog = {};
@@ -2730,12 +2782,101 @@ function parseWB(wb){
     // independently downstream.
     rep.isVacant = isVacantName(rep.name);
   }
+  // Drop test / admin accounts entirely
+  Object.keys(reps).forEach(function(k){
+    if(isTestAccount(k, reps[k].name || loginToName[k])){ console.log('[Frutta] Removed test account:', k, reps[k].name); delete reps[k]; }
+  });
 
-    return {overall:{revenue:tv,cases:tc,att:ta,met:tm,sold:ts},
+  /* ═══════════════════════════════════════════════════════════════
+     NEW CUSTOMERS — from the SmartSeller customer export pasted in as a
+     sheet (any name; detected by the "Reg. Date" + "Code" headers).
+     A customer is "new" when its Reg. Date falls in this report's month.
+  ═══════════════════════════════════════════════════════════════ */
+  let newCust = null;
+  (function(){
+    const normName = function(v){ return String(v||'').toLowerCase().replace(/[^a-z ]/g,' ').replace(/\s+/g,' ').trim(); };
+    let rows=null, H=null;
+    for(const sn of wb.SheetNames){
+      const rr = XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:null,raw:false});
+      for(let i=0;i<Math.min(rr.length,5);i++){
+        const h=(rr[i]||[]).map(function(x){return String(x||'').trim().toLowerCase();});
+        if(h.includes('reg. date') && h.includes('code')){ rows=rr.slice(i+1); H=h; break; }
+      }
+      if(rows) break;
+    }
+    if(!rows){ console.log('[New Customers] No customer export sheet found (needs "Code" and "Reg. Date" columns).'); return; }
+    const c = function(){ for(const k of arguments){ const i=H.indexOf(k); if(i>=0) return i; } return -1; };
+    const iCB=c('created by (rep)','created by'), iType=c('type'), iPg=c('price group'), iRLogin=c('rep login id'), iRRgn=c('rep region'), iRAbm=c('rep abm','rep asm');
+    const iCode=c('code'), iName=c('business name'), iCh=c('channel'), iTer=c('territory'), iRg=c('region'),
+          iPh=c('phone'), iAddr=c('address'), iLat=c('latitude'), iLng=c('longitude'), iSm=c('salesman'), iDt=c('reg. date');
+    const toYMD = function(v){
+      if(v instanceof Date && !isNaN(v)) return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-'+String(v.getDate()).padStart(2,'0');
+      const s=String(v||'').trim(); let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[1]+'-'+m[2]+'-'+m[3];
+      m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); if(m){ const y=m[3].length===2?'20'+m[3]:m[3]; return y+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0'); }
+      return '';
+    };
+    // salesman NAME → login (only real, non-vacant logins)
+    const nameToLogin = {};
+    Object.keys(loginToName).forEach(function(k){
+      const nm = normName(loginToName[k]);
+      if(!nm || /vacant/.test(nm) || !/^[A-Z]{4,}\d+$/i.test(k)) return;
+      if(!nameToLogin[nm]) nameToLogin[nm] = k.toUpperCase();
+    });
+    const asmNames = {};   // normalised ASM name → ASM label as used by the ASM filter
+    Object.values(reps).forEach(function(r){ if(r.asm) asmNames[normName(r.asm)] = r.asm; });
+    const visited = new Set();
+    Object.values(reps).forEach(function(r){ if(r.outlets instanceof Set) r.outlets.forEach(function(x){visited.add(String(x).trim());}); });
+    const normPh = function(p){ const d=String(p||'').replace(/\D/g,''); return d.length>=10 ? d.slice(-10) : ''; };
+    const phoneCount = {};
+    rows.forEach(function(r){ if(!r) return; const p=normPh(r[iPh]); if(p) phoneCount[p]=(phoneCount[p]||0)+1; });
+    const ym = dominantYM || '';
+    const list = [];
+    let masterCount = 0, noDate = 0;
+    rows.forEach(function(r){
+      if(!r || !r[iCode]) return;
+      masterCount++;
+      const d = toYMD(r[iDt]);
+      if(!d){ noDate++; return; }
+      // Secondary customers only
+      if(iType>=0 && String(r[iType]||'').trim().toLowerCase()!=='secondary') return;
+      if(iPg>=0 && /^prim/i.test(String(r[iPg]||'').trim())) return;
+      if(ym && d.slice(0,7)!==ym) return;
+      const code = String(r[iCode]).trim();
+      // "Created By (Rep)" (workbook helper) is the creator; "Salesman" is only the assigned owner (often the ABM)
+      const _cb = iCB>=0 ? String(r[iCB]||'').trim() : '';
+      const smName = (_cb && !/^unmapped/i.test(_cb)) ? _cb : String(r[iSm]||'').trim();
+      if(isTestAccount('', smName)) return;   // created by a test login
+      // Prefer the workbook's own mapping (Rep Login ID / Rep Region / Rep ABM) when present
+      const _hl = iRLogin>=0 ? String(r[iRLogin]||'').trim().toUpperCase() : '';
+      const helperLogin = (_hl && rgnFromCode(_hl)) ? _hl : '';
+      const login = helperLogin || nameToLogin[normName(smName)] || '';
+      const helperRgn = iRRgn>=0 ? normRgn(r[iRRgn]) : '';
+      const helperAbm = iRAbm>=0 ? cleanAsm(String(r[iRAbm]||'').trim()) : '';
+      // Customers created by an ASM themselves → that ASM owns them
+      const asmSelf = asmNames[normName(smName)] || ((login && isManagerCode(login)) ? (asmNames[normName(loginToName[login])] || cleanAsm(smName)) : '');
+      const rgn = (REGIONS.includes(helperRgn) ? helperRgn : '') || (login ? rgnFromCode(login) : '') || normRgn(r[iRg]) || '';
+      const lat = parseFloat(r[iLat]), lng = parseFloat(r[iLng]);
+      const cr = custRev[code];
+      list.push({
+        code, name:String(r[iName]||'').trim(), channel:String(r[iCh]||'').trim(),
+        phone:String(r[iPh]||'').trim(), address:iAddr>=0?String(r[iAddr]||'').trim():'',
+        territory:String(r[iTer]||'').trim(), region:rgn, date:d,
+        salesman:smName, login, isAsm: !!asmSelf, asm: asmSelf || (helperAbm && helperAbm!=='#N/A' ? helperAbm : '') || (login ? (loginToASM[login] || loginToASM[login.replace(/^[A-Z]+/i,'')] || (reps[login]&&reps[login].asm) || '') : ''),
+        bought: !!(cr && cr.rev>0), rev: cr ? cr.rev : 0, cases: cr ? cr.cases : 0,
+        visited: visited.has(code),
+        noGps: !(lat && lng),
+        dupPhone: (phoneCount[normPh(r[iPh])]||0) > 1,
+      });
+    });
+    newCust = {ym, masterCount, noDate, rows:list};
+    console.log('[New Customers] '+list.length+' created in '+ym+' (of '+masterCount+' in master, '+noDate+' without Reg. Date)');
+  })();
+
+    return {overall:{revenue:tv,cases:tc,att:ta,met:tm,sold:ts}, newCust,
     regions:reg, reps, daily, dailyAll, dbMap,
     targets:{repTargets, regTargets, regRevTargets, totalTargetCases, totalTargetRev, blendedPrice},
     intel:{brands, channels, skus, chanByRgn, brandByRgn, brandCasesByRgn, workDaysInMonth, workDaysGone, workDaysLeft, daysInMonth, dominantYM},
-    stockData, stockSoldIdx, stockSoldByDb, STOCK_SKUS, loginToName, codeToLogin, loginToCode};
+    stockData, stockSoldIdx, stockSoldByDb, STOCK_SKUS, loginToName, codeToLogin, loginToCode, checkedInASM};
 }
 
 /* ═══════════════════════════ ASM-FILTERED HELPERS ════════════ */
@@ -2775,7 +2916,7 @@ function fRegion(rgn){
     revenue:repsForWork.reduce((s,r)=>s+r.revenue,0),
     cases:repsForWork.reduce((s,r)=>s+r.cases,0),
     soldCount, metCount,
-    attCount:repsForCount.length,
+    attCount:D.checkedInASM ? (D.regions[rgn].checkedInLogins||[]).filter(function(l){return D.checkedInASM[l]===activeASM;}).length : repsForCount.length,
     conv:metCount>0?Math.min(soldCount/metCount*100,100):0,
     compliance, compliantCount,
   };
@@ -2815,7 +2956,7 @@ function fOverall(){
   return{
     revenue:     repsForWork.reduce(function(s,r){return s+r.revenue;},0),
     cases:       repsForWork.reduce(function(s,r){return s+r.cases;},0),
-    att:         allRepsInASM.length,
+    att:         D.checkedInASM ? Object.keys(D.checkedInASM).filter(function(l){return D.checkedInASM[l]===activeASM;}).length : allRepsInASM.length,
     met, sold,
     targetCases: asmTargetCases,
     targetRev:   asmTargetRev,
@@ -2824,6 +2965,71 @@ function fOverall(){
 function asmBadge(el){
   if(activeASM){el.textContent='ASM: '+activeASM;el.style.display='';}
   else el.style.display='none';
+}
+
+/* ═══════════════════════════ NEW CUSTOMERS (helpers) ══════════ */
+// New SECONDARY customers created this month, optionally for one region,
+// always respecting the ASM filter.
+function ncRows(rgn){
+  const NC = D && D.newCust; if(!NC) return null;
+  return NC.rows.filter(function(r){ return (!rgn || r.region===rgn) && (!activeASM || r.asm===activeASM); });
+}
+function ncSummary(rows){
+  const o={n:0,b:0,rev:0,byLogin:{}};
+  (rows||[]).forEach(function(r){
+    o.n++; if(r.bought){o.b++;} o.rev+=r.rev; if(!r.visited) o.nv=(o.nv||0)+1;
+    if(r.login){ const x=o.byLogin[r.login]||(o.byLogin[r.login]={n:0,b:0,nv:0,nvNames:[]}); x.n++; if(r.bought) x.b++; if(!r.visited){ x.nv++; x.nvNames.push(r.name+' ('+r.date.slice(8)+'/'+r.date.slice(5,7)+')'); } }
+  });
+  return o;
+}
+// Download the "created but never visited" customers as Excel.
+// rgn = region or null (all); login = one rep, or null.
+function exportNcToVerify(rgn, login){
+  if(typeof XLSX==='undefined'){ toast('⚠ Export unavailable'); return; }
+  const today = (D.intel && D.intel.dominantYM) ? null : null;
+  const ref = (function(){ const ds=Object.keys(D.dailyAll||{}).sort(); return ds.length ? new Date(ds[ds.length-1]) : new Date(); })();
+  const rows = (ncRows(rgn)||[]).filter(function(r){ return !r.visited && (!login || r.login===login); })
+    .sort(function(a,b){ return (a.region||'').localeCompare(b.region||'') || (a.asm||'').localeCompare(b.asm||'') || (a.salesman||'').localeCompare(b.salesman||'') || a.date.localeCompare(b.date); });
+  if(!rows.length){ toast('✓ Nothing to verify'); return; }
+  const data = [['Region','ASM','Created By','Rep Login','Customer','Customer Code','Created On','Days Since Created','Channel','Territory','Address','Phone','GPS','Duplicate Phone','Bought','Verified? (Y/N)','Comment']];
+  rows.forEach(function(r){
+    const days = Math.max(0, Math.round((ref - new Date(r.date))/86400000));
+    data.push([r.region, r.asm||'', r.salesman||'', r.login||'', r.name, r.code, r.date, days, r.channel, r.territory, r.address||'', r.phone||'', r.noGps?'MISSING':'OK', r.dupPhone?'YES':'', r.bought?'YES':'NO', '', '']);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = data[0].map(function(_,ci){ return {wch:Math.min(40,Math.max.apply(null,data.map(function(r){return String(r[ci]==null?'':r[ci]).length;}))+2)}; });
+  ws['!autofilter'] = {ref: XLSX.utils.encode_range({s:{r:0,c:0},e:{r:data.length-1,c:data[0].length-1}})};
+  const wb2 = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb2, ws, 'To Verify');
+  const fname = _expFilename('new-customers-to-verify'+(rgn?'-'+rgn:'')+(login?'-'+login:'')+(activeASM?'-'+activeASM:''));
+  XLSX.writeFile(wb2, fname+'.xlsx'); toast('📊 '+rows.length+' customers to verify — '+fname+'.xlsx');
+}
+function ncCard(rows, rgn){
+  if(!rows) return '';
+  const s=ncSummary(rows);
+  return '<div class="kc"><div class="kc-lbl">New Customers</div><div class="kc-val c-g">'+fn(s.n)+'</div>'
+    +'<div class="kc-sub">Secondary · created MTD · '+fn(s.b)+' bought ('+fp(s.n?s.b/s.n*100:0)+') · '+fm(s.rev)+'</div>'
+    +(s.nv?'<div class="kc-sub" style="color:var(--amb);font-weight:700;margin-top:4px">⚠ '+fn(s.nv)+' never visited — verify these outlets</div>'
+        +'<button onclick="exportNcToVerify('+(rgn?"'"+rgn+"'":'null')+',null)" style="margin-top:8px;padding:5px 10px;background:rgba(245,166,35,.12);border:1px solid rgba(245,166,35,.45);border-radius:7px;color:var(--amb);font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:1px;cursor:pointer">⬇ DOWNLOAD LIST TO VERIFY</button>':'')
+    +'</div>';
+}
+function ncListHtml(rows, key, color){
+  if(!rows) return '';
+  const esc=function(v){return String(v==null?'':v).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
+  const list=rows.slice().sort(function(a,b){return b.date.localeCompare(a.date)||b.rev-a.rev;});
+  const yes='<span style="color:var(--grn);font-weight:700">✓</span>', no='<span style="color:var(--dim)">—</span>';
+  return '<div class="tb"><div class="tb-hd"><span style="color:'+color+'">&#9642;</span>New Customers Created<span class="tb-cnt">'+list.length+' SECONDARY</span>'
+    +'<div style="margin-left:auto"><input type="text" placeholder="Search customer, rep, territory…" oninput="filterRepTable(\'nc-tbody-'+key+'\',this.value)" style="background:var(--s2);border:1px solid var(--bdr);border-radius:7px;padding:5px 12px;font-family:var(--fm);font-size:10px;color:var(--txt);outline:none;width:200px;font-weight:600;"></div></div>'
+    +'<div style="overflow-x:auto;max-height:480px;overflow-y:auto"><table><thead><tr><th>Date</th><th>Customer</th><th>Code</th><th>Channel</th><th>Territory</th><th>Created By</th><th>ASM</th><th>Visited</th><th>Bought</th><th>Revenue</th><th>Flags</th></tr></thead><tbody id="nc-tbody-'+key+'">'
+    +(list.map(function(r){
+        const flags=[r.noGps?'No GPS':'', r.dupPhone?'Dup phone':''].filter(Boolean).join(' · ');
+        return '<tr><td style="white-space:nowrap">'+r.date.slice(8)+'/'+r.date.slice(5,7)+'</td><td>'+esc(r.name)+'</td><td style="font-size:10px;color:var(--dim)">'+esc(r.code)+'</td>'
+          +'<td style="font-size:11px">'+esc(r.channel)+'</td><td style="font-size:11px">'+esc(r.territory)+'</td>'
+          +'<td style="font-size:11px">'+esc(r.salesman)+(r.login?'<div style="font-size:9px;color:var(--dim)">'+esc(r.login)+'</div>':'')+'</td>'
+          +'<td style="font-size:11px">'+esc(r.asm||'—')+'</td>'
+          +'<td>'+(r.visited?yes:no)+'</td><td>'+(r.bought?yes:no)+'</td><td style="color:var(--grn)">'+(r.rev?fm(r.rev):'—')+'</td>'
+          +'<td style="font-size:10px;color:var(--amb)">'+flags+'</td></tr>';
+      }).join('') || '<tr><td colspan="11" style="text-align:center;color:var(--dim);padding:18px">No new customers this month</td></tr>')
+    +'</tbody></table></div></div>';
 }
 
 /* ═══════════════════════════ CHART UTILS ════════════════════ */
@@ -3153,6 +3359,7 @@ function renderOV(){try{
    +`<div class="kc"><div class="kc-lbl">Active Reps</div><div class="kc-val">${o.att}</div><div class="kc-sub">Checked in (incl. zero-rev)</div></div>`
    +`<div class="kc"><div class="kc-lbl">Productive Reps</div><div class="kc-val c-g">${productiveReps}</div><div class="kc-sub">Reps with revenue > ₦0</div></div>`
    +`<div class="kc a"><div class="kc-lbl">Customers Sold To</div><div class="kc-val c-a">${fn(o.sold)}</div><div class="kc-sub">Unique MTD</div></div>`
+   +ncCard(ncRows(null), null)
    +`<div class="kc p"><div class="kc-lbl">Drop Size</div><div class="kc-val c-p">${o.sold>0?(o.cases/o.sold).toFixed(1):'-'} cs</div><div class="kc-sub">Avg cases per customer</div></div>`
    +`<div class="kc"><div class="kc-lbl">Overall Conv.</div><div class="kc-val">${fp(o.met>0?o.sold/o.met*100:0)}</div><div class="kc-sub">Sold ÷ Visited</div></div>`
    +`<div class="kc"><div class="kc-lbl">Avg Compliance</div><div class="kc-val ${overallCompliance>=100?'c-g':overallCompliance>=75?'c-a':''}">${fp(overallCompliance)}</div><div class="kc-sub">${compliantTotal}/${allReps.length} reps at target (${COMPLIANCE_TARGET})</div></div>`;
@@ -3263,6 +3470,7 @@ function renderOV(){try{
       <td style="color:var(--dim);font-size:11px;text-align:center">${d.repCount}</td>
       <td style="color:var(--blu)">${rd.attCount}</td>
       <td style="color:var(--grn);font-weight:700">${d.prodCount} <span style="font-size:9px;color:var(--dim)">(${rd.attCount>0?Math.round(d.prodCount/rd.attCount*100):0}%)</span></td>
+      <td style="font-weight:700">${D.newCust?(function(){const q=ncSummary(ncRows(r));return fn(q.n)+(q.nv?'<div style="font-size:9px;color:var(--amb)">⚠ '+q.nv+' not visited</div>':'');})():'—'}</td>
       <td>${cbadge(rd.conv)}</td>
       <td>${compbadge(rd.compliance||0)}</td>
     </tr>`;
@@ -4105,6 +4313,9 @@ function renderRgn(regName){
   const ovRegTarget  = reps.reduce(function(s,r){ return s + repOutletTarget(regName, r.code); }, 0);
   const ovRegActual   = rd.metCount || 0;   // includes vacant-account outlet work
 
+  /* ── New secondary customers for this region (ASM filter aware) ── */
+  const _ncR = ncRows(regName);
+  const _ncBy = _ncR ? ncSummary(_ncR).byLogin : {};
   /* ── Top 3 / Bottom 3 reps ── */
   const medals = ['🥇','🥈','🥉'];
   const withRev = reps.filter(function(r){return r.revenue>0;});
@@ -4209,6 +4420,12 @@ function renderRgn(regName){
       +'<td>'+fn(r.soldCount)+'</td>'
       +'<td>'+cbadge(r.conv)+'</td>'
       +'<td>'+compbadge(r.compliance||0)+'</td>'
+      +(_ncR ? (function(){ var _k1=String(r.code).toUpperCase(), _k2=String((D.codeToLogin||{})[r.code]||'').toUpperCase(); var _kk=_ncBy[_k1]?_k1:_k2; var x=_ncBy[_kk];
+                if(!x) return '<td><span style="color:var(--dim)">0</span></td>';
+                var esc=function(v){return String(v).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
+                return '<td style="font-weight:700;white-space:nowrap">'+fn(x.n)+' <span style="font-size:9px;color:var(--dim)">('+x.b+' bought)</span>'
+                  +(x.nv?'<div onclick="exportNcToVerify(\''+regName+'\',\''+_kk+'\')" title="Click to download. Created but never visited this month:&#10;'+esc(x.nvNames.join('\n'))+'" style="cursor:pointer;margin-top:3px;display:inline-block;background:rgba(245,166,35,.12);border:1px solid rgba(245,166,35,.4);border-radius:5px;padding:1px 6px;font-size:9px;color:var(--amb)">⚠ '+x.nv+' not visited</div>':'')
+                  +'</td>'; })() : '')
       +'</tr>';
   });
 
@@ -4230,6 +4447,7 @@ function renderRgn(regName){
     +'<div class="kc"><div class="kc-lbl">Productive Reps</div><div class="kc-val c-g">'+reps.filter(function(r){return r.revenue>0;}).length+'<span style="font-size:14px;color:var(--dim)"> selling</span></div><div class="kc-sub">Revenue > ₦0</div></div>'
     +tgtCard('Outlets Visited', ovRegActual, ovRegTarget, {valCls:'c-b', isCases:true, sub:'Day '+_wGone+' pace · '+_ovSubLbl})
     +'<div class="kc"><div class="kc-lbl">Customers Sold To</div><div class="kc-val">'+fn(rd.soldCount)+'</div></div>'
+    +ncCard(_ncR, regName)
     +'<div class="kc p"><div class="kc-lbl">Drop Size</div><div class="kc-val c-p">'+(rd.soldCount>0?(rd.cases/rd.soldCount).toFixed(1):'-')+' cs</div><div class="kc-sub">Avg cases per customer</div></div>'
     +'<div class="kc p"><div class="kc-lbl">Conversion Rate</div><div class="kc-val c-p">'+fp(rd.conv)+'</div></div>'
     +'<div class="kc" style="border-color:'+compColor+'33">'
@@ -4256,6 +4474,7 @@ function renderRgn(regName){
     +'<th>#</th><th>Code</th><th>Name</th><th>ASM</th>'
     +'<th>Revenue</th><th>Rev Target</th><th>Achieved%</th><th>Cases</th><th>Cases Target</th><th>Drop Size</th><th>Outlets Met</th><th>Visit Target</th><th>Visit%</th><th>Customers Sold</th><th>Conversion</th>'
     +'<th>Compliance <span style="font-weight:400;font-size:9px;opacity:.7">/'+COMPLIANCE_TARGET+'</span></th>'
+    +(D.newCust?'<th>New Cust.</th>':'')
     +'</tr></thead><tbody id="rep-scorecard-tbody-'+key+'">'
     +tblRows
     +'</tbody></table>'
