@@ -2383,6 +2383,102 @@ function parseWB(wb){
     console.log('[Frutta time-gone] Sheet values → daysInMonth:'+daysInMonth+' workDaysInMonth:'+workDaysInMonth+' workDaysGone:'+workDaysGone+' workDaysLeft:'+workDaysLeft);
   }
 
+
+  /* ═══ NORTH MANUAL SALES (distributors keyed by hand) → merged into NORTH region ═══
+     Sheets: 'NORTH MANUAL SALES' (weekly stock & sellout per distributor) + 'North Dist Weekly' (price/case, row 5 W:Z).
+     Sellout value = cases sold x price per case. Added to NORTH revenue/cases, daily trend, brand/SKU mix and DB list. */
+  let northManual = null;
+  (function(){
+    const findSheet = function(key){ return wb.SheetNames.find(function(n){ return String(n).trim().toLowerCase()===key; }); };
+    const shName = findSheet('north manual sales');
+    if(!shName) return;
+    const num = function(v){ const n = parseFloat(String(v==null?'':v).replace(/,/g,'')); return isNaN(n)?0:n; };
+    const ymd = function(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+    const toYMD = function(v){
+      if(v instanceof Date && !isNaN(v)) return ymd(new Date(v.getTime()+12*3600e3));
+      if(typeof v==='number' && v>20000 && v<80000) return ymd(new Date(1899,11,30+Math.round(v)));
+      const t=String(v||'').trim(); let m=t.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[0];
+      m=t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); if(m){ const y=m[3].length===2?'20'+m[3]:m[3]; return y+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0'); }
+      return '';
+    };
+    const rr = XLSX.utils.sheet_to_json(wb.Sheets[shName],{header:1,defval:null,raw:true});
+    const hdr = (rr[0]||[]).map(function(x){return String(x||'').trim().toUpperCase();});
+    const ci = function(k){ return hdr.indexOf(k); };
+    const iWk=ci('WEEK START'), iNm=ci('NAME'), iSt=ci('STATE');
+    const iSold=[ci('CALIFORNIA SOLD'),ci('35CL PET SOLD'),ci('FRUTTA 1L SOLD'),ci('MACCAW 1L SOLD')];
+    const iOpen=[ci('CALIFORNIA'),ci('PET 35CL'),ci('FRUTTA QTY'),ci('MACCAW QTY')];
+    const iRem=[ci('REM CALIFORNIA'),ci('REM 35CL PET'),ci('REM FRUTTA 1L'),ci('REM MACCAW 1L')];
+    const iSo=ci('SO IN CHARGE');
+    if(iWk<0||iNm<0||iSold.some(function(i){return i<0;})){ console.log('[North Manual] columns not recognised'); return; }
+    let prices = [6100,3150,14500,13200];   // California, PET 35CL, Frutta 1L, Maccaw 1L (fallback)
+    const dwName = findSheet('north dist weekly');
+    if(dwName){
+      const dw = XLSX.utils.sheet_to_json(wb.Sheets[dwName],{header:1,defval:null,raw:true});
+      const pr = (dw[4]||[]).slice(22,26).map(num);
+      if(pr.length===4 && pr.every(function(x){return x>0;})) prices = pr;
+    }
+    const BR = ['California','PET 35CL','Frutta 1ltr','Maccaw'];
+    const rows = [];
+    for(let i=1;i<rr.length;i++){
+      const r=rr[i]; if(!r) continue;
+      const nm=String(r[iNm]||'').trim(), wk=toYMD(r[iWk]);
+      if(!nm||!wk) continue;                         // skips TOTAL / blank rows
+      const sold = iSold.map(function(k){return num(r[k]);});
+      rows.push({week:wk, name:nm, state:String(r[iSt]||'').trim().toUpperCase(), sold:sold, so:iSo<0?'':String(r[iSo]||'').trim(),
+                 open:iOpen.map(function(k){return k<0?0:num(r[k]);}), rem:iRem.map(function(k){return k<0?0:num(r[k]);}),
+                 val:sold.map(function(q,j){return q*prices[j];})});
+    }
+    if(!rows.length) return;
+    // Month to merge into = the month most of the system sales dates fall in
+    const _mc = {}; Object.keys(dailyAll).forEach(function(d){ _mc[d.slice(0,7)]=(_mc[d.slice(0,7)]||0)+1; });
+    const _top = Object.entries(_mc).sort(function(a,b){return b[1]-a[1];})[0];
+    const ymMain = _top ? _top[0] : rows[0].week.slice(0,7);
+    const lastSysDate = Object.keys(dailyAll).sort().pop() || '9999-12-31';
+    // Spread each week's sellout evenly over its Mon–Sat days that fall in the month (and not after the latest system date)
+    const wkDays = {};
+    rows.forEach(function(r){
+      if(wkDays[r.week]) return;
+      const [y,m,d]=r.week.split('-').map(Number); const ds=[];
+      for(let k=0;k<7;k++){ const dt=new Date(y,m-1,d+k); if(dt.getDay()===0) continue; const s2=ymd(dt); if(s2.slice(0,7)===ymMain && s2<=lastSysDate) ds.push(s2); }
+      wkDays[r.week]=ds;
+    });
+    let addRev=0, addCases=0, used=0, skippedWeeks=new Set();
+    rows.forEach(function(r){
+      const days = wkDays[r.week];
+      const rev = r.val.reduce(function(a,b){return a+b;},0), cs = r.sold.reduce(function(a,b){return a+b;},0);
+      if(!days.length){ skippedWeeks.add(r.week); return; }
+      if(rev===0 && cs===0) return;
+      used++; addRev+=rev; addCases+=cs;
+      reg.NORTH.revenue += rev; reg.NORTH.cases += cs;
+      if(!daily.NORTH) daily.NORTH={};
+      days.forEach(function(dd){ daily.NORTH[dd]=(daily.NORTH[dd]||0)+rev/days.length; dailyAll[dd]=(dailyAll[dd]||0)+rev/days.length; });
+      r.val.forEach(function(v,j){
+        if(!v && !r.sold[j]) return;
+        if(!brands[BR[j]]) brands[BR[j]]={revenue:0,cases:0};
+        brands[BR[j]].revenue+=v; brands[BR[j]].cases+=r.sold[j];
+        if(!skus[BR[j]]) skus[BR[j]]={brand:BR[j],revenue:0,cases:0};
+        skus[BR[j]].revenue+=v; skus[BR[j]].cases+=r.sold[j];
+        if(!brandByRgn.NORTH) brandByRgn.NORTH={}; brandByRgn.NORTH[BR[j]]=(brandByRgn.NORTH[BR[j]]||0)+v;
+        if(!brandCasesByRgn.NORTH) brandCasesByRgn.NORTH={}; brandCasesByRgn.NORTH[BR[j]]=(brandCasesByRgn.NORTH[BR[j]]||0)+r.sold[j];
+      });
+      if(!channels['Distributor (manual)']) channels['Distributor (manual)']={revenue:0,cases:0};
+      channels['Distributor (manual)'].revenue+=rev; channels['Distributor (manual)'].cases+=cs;
+      if(!chanByRgn.NORTH) chanByRgn.NORTH={}; chanByRgn.NORTH['Distributor (manual)']=(chanByRgn.NORTH['Distributor (manual)']||0)+rev;
+      // each manual distributor shows up in DB Performance under NORTH
+      const dk='_MANUAL_'+r.name.toUpperCase().replace(/[^A-Z0-9]+/g,'_');
+      if(!dbMap[dk]) dbMap[dk]={name:r.name+(r.state?' ('+r.state+')':''), reps:[], region:'NORTH', revenue:0, cases:0, repRevs:{}};
+      dbMap[dk].revenue+=rev; dbMap[dk].cases+=cs;
+    });
+    northManual = {revenue:addRev, cases:addCases, distributors:new Set(rows.map(function(r){return r.name;})).size,
+                   weeks:Array.from(new Set(rows.map(function(r){return r.week;}))).sort(), month:ymMain, prices:prices,
+                   skippedWeeks:Array.from(skippedWeeks)};
+    // Latest week = the current stock snapshot used by the Stock Tracker
+    const latest = northManual.weeks[northManual.weeks.length-1];
+    northManual.stockWeek = latest;
+    northManual.stockRows = rows.filter(function(r){return r.week===latest;}).map(function(r){return {name:r.name,state:r.state,so:r.so,open:r.open,sold:r.sold,rem:r.rem};});
+    console.log('[North Manual] merged ₦'+Math.round(addRev).toLocaleString()+' / '+addCases+' cases into NORTH ('+northManual.weeks.join(', ')+')', skippedWeeks.size?('| skipped (outside month): '+Array.from(skippedWeeks)):'');
+  })();
+
   /* ── Fall back to calculating from data dates if sheet had no values ── */
   const allDataDates = Object.keys(dailyAll).sort();
   const monthCount = {};
@@ -2707,6 +2803,28 @@ function parseWB(wb){
     }
   }
 
+  /* ── NORTH MANUAL → Stock Tracker ──
+     The manual weekly sheet is the live source for North distributors, so it replaces the North block of the
+     'Opening Stock' sheet (avoids listing the same distributors twice). Keys match the DB Performance keys. */
+  if(northManual && northManual.stockRows && northManual.stockRows.length){
+    Object.keys(stockData).forEach(function(k){ if(String(stockData[k].stockRegion||'').toUpperCase().indexOf('NORTH')===0) delete stockData[k]; });
+    const MAP = {'Cal':0,'PET 35 CL':1,'Frutta 1ltr':2,'Maccaw':3};   // manual column order: California, PET 35CL, Frutta 1L, Maccaw 1L
+    const tc = function(x){ return x ? x.charAt(0)+x.slice(1).toLowerCase() : ''; };
+    northManual.stockRows.forEach(function(r){
+      const key='_MANUAL_'+r.name.toUpperCase().replace(/[^A-Z0-9]+/g,'_');
+      const e = {name:r.name, asm:r.so, region:'North', stockRegion:'NORTH', location:tc(r.state), code:'MANUAL',
+                 skus:{}, totalPrev:0, totalShip:0, totalStock:0, totalSellout:0, totalClosing:0, status:'Safe', manual:true};
+      STOCK_SKUS.forEach(function(sku){
+        const j = MAP[sku];
+        const open = j>=0 && j!==undefined ? r.open[j] : 0, sold = j!==undefined ? r.sold[j] : 0, rem = j!==undefined ? r.rem[j] : 0;
+        e.skus[sku] = {prev:open, ship:0, total:open, sellout:sold, closing:rem};
+        e.totalPrev+=open; e.totalStock+=open; e.totalSellout+=sold; e.totalClosing+=rem;
+      });
+      stockData[key]=e;
+    });
+    console.log('[North Manual] Stock Tracker: '+northManual.stockRows.length+' North distributors loaded from week '+northManual.stockWeek);
+  }
+
   // Build MTD cases sold per customer code from Sales data (cust_code col)
   // Sales data has: order_date | salesman_code | fulname | cust_code | cust_name | ... | sku_description | sku_quantity
   const stockSoldByDb = {}; // custCode → { 'Total': n, skuName: n, … }
@@ -2876,7 +2994,7 @@ function parseWB(wb){
     regions:reg, reps, daily, dailyAll, dbMap,
     targets:{repTargets, regTargets, regRevTargets, totalTargetCases, totalTargetRev, blendedPrice},
     intel:{brands, channels, skus, chanByRgn, brandByRgn, brandCasesByRgn, workDaysInMonth, workDaysGone, workDaysLeft, daysInMonth, dominantYM},
-    stockData, stockSoldIdx, stockSoldByDb, STOCK_SKUS, loginToName, codeToLogin, loginToCode, checkedInASM};
+    stockData, stockSoldIdx, stockSoldByDb, STOCK_SKUS, loginToName, codeToLogin, loginToCode, checkedInASM, northManual};
 }
 
 /* ═══════════════════════════ ASM-FILTERED HELPERS ════════════ */
@@ -4442,7 +4560,8 @@ function renderRgn(regName){
     +'<div class="sh-title">'+(regName==='Key Acct'?'KEY ACCOUNT':regName)+'</div>'
     +'<span class="badge b-grn">MTD</span>'
     +'<span class="badge b-asm" style="'+(activeASM?'':'display:none')+'">'+(activeASM?'ASM: '+activeASM:'')+'</span>'
-    +'<span class="sh-meta">'+reps.length+' Reps</span>'
+    +'<span class="sh-meta">'+reps.length+' Reps'
+    +((regName==='NORTH' && D.northManual && D.northManual.revenue>0 && !activeASM)?' · incl. '+fm(D.northManual.revenue)+' manual distributor sellout ('+fn(D.northManual.cases)+' cs)':'')+'</span>'
     +'</div>'
     +'<div class="kg">'
     +tgtCard('MTD Revenue', rd.revenue, rgt, {valCls:'c-g'})
@@ -5956,7 +6075,10 @@ function renderStock(){
       // brandByRgn stores revenue — scale to cases using global brand ratio
       const rgnRev    = (intelBrandByRgn[stockRegionFilter] || {})[brandKey] || 0;
       const globalRev = globalBrand.revenue || 0;
-      if(globalRev > 0 && rgnRev > 0){
+      const _exactCs  = ((D.intel && D.intel.brandCasesByRgn || {})[stockRegionFilter] || {})[brandKey];
+      if(_exactCs !== undefined){
+        skuTotals[s].monthlySales = Math.round(_exactCs);   // exact cases per region & brand
+      } else if(globalRev > 0 && rgnRev > 0){
         skuTotals[s].monthlySales = Math.round(rgnRev / globalRev * globalBrand.cases);
       }
     } else {
