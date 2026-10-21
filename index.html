@@ -2096,7 +2096,11 @@ function parseWB(wb){
       for(let i=1; i<=Math.min(50,rowsStr.length-1); i++){
         const row = rowsNum[i]; if(!row) continue;
         for(let c=0; c<ncols; c++){
-          const v = parseFloat(String(row[c]||'').replace(/,/g,''));
+          // Strict numeric test: parseFloat('2026-09') returns 2026, which made text columns
+          // like 'Cust Reg. Month' look numeric. Only accept real numbers / pure numeric strings.
+          const _raw = row[c];
+          const v = (typeof _raw === 'number') ? _raw
+                  : (/^-?[\d,]+(\.\d+)?$/.test(String(_raw==null?'':_raw).trim()) ? parseFloat(String(_raw).replace(/,/g,'')) : NaN);
           if(!isNaN(v) && v>0){ numHits[c]++; numSum[c]+=v; }
         }
       }
@@ -2107,8 +2111,11 @@ function parseWB(wb){
         if(numericCols.length>=2) break;
       }
       // numericCols[0]=rightmost(amt), numericCols[1]=second-from-right(qty)
-      const amtCol = numericCols[0] ?? 13;
-      const qtyCol = numericCols[1] ?? 12;
+      // Header names win when present (Qty / Sales Amt); position-scan is only the fallback.
+      const _hdrIdx = function(name){ return HDR_ROW.findIndex(function(h){ return String(h||'').trim().toLowerCase()===name; }); };
+      const _hQty = _hdrIdx('qty'), _hAmt = _hdrIdx('sales amt');
+      const amtCol = (_hAmt>=0 && _hQty>=0) ? _hAmt : (numericCols[0] ?? 13);
+      const qtyCol = (_hAmt>=0 && _hQty>=0) ? _hQty : (numericCols[1] ?? 12);
 
       console.log('[Frutta KA-fix] amtCol='+amtCol+' qtyCol='+qtyCol+' ncols='+ncols);
 
