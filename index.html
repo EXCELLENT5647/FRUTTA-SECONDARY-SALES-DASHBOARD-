@@ -1484,6 +1484,7 @@ function parseWB(wb){
   const reps     = {};  // keyed by SALES CODE only
   const daily    = {};
   const dailyAll = {};
+  const dailySys = {};   // real day-by-day sales from Sales data only (no North manual weekly spread)
   const custRev  = {};  // cust_code → {rev, cases} MTD — used by New Customers tab
 
   /* ── Numeric salesman_code → KAT login bridge (for KA reps) ── */
@@ -2227,6 +2228,7 @@ function parseWB(wb){
         if(!daily[rgn]) daily[rgn]={};
         daily[rgn][date] = (daily[rgn][date]||0) + amt;
         dailyAll[date]   = (dailyAll[date]||0) + amt;
+        dailySys[date]   = (dailySys[date]||0) + amt;
 
         ensureRep(code, rgn, name, asm);
         reps[code].revenue += amt;
@@ -2998,7 +3000,7 @@ function parseWB(wb){
   })();
 
     return {overall:{revenue:tv,cases:tc,att:ta,met:tm,sold:ts}, newCust,
-    regions:reg, reps, daily, dailyAll, dbMap,
+    regions:reg, reps, daily, dailyAll, dailySys, dbMap,
     targets:{repTargets, regTargets, regRevTargets, totalTargetCases, totalTargetRev, blendedPrice},
     intel:{brands, channels, skus, chanByRgn, brandByRgn, brandCasesByRgn, workDaysInMonth, workDaysGone, workDaysLeft, daysInMonth, dominantYM},
     stockData, stockSoldIdx, stockSoldByDb, STOCK_SKUS, loginToName, codeToLogin, loginToCode, checkedInASM, northManual};
@@ -3825,7 +3827,9 @@ function renderGMD(){try{
   const momentumIcon  = isAccel ? '↑' : isFlat ? '→' : '↓';
   const momentumWord  = isAccel ? 'ACCELERATING' : isFlat ? 'STEADY' : 'DECELERATING';
   // Best and worst single days
-  const dayEntries = allDates.map(d=>({d, v:D.dailyAll[d]||0})).filter(e=>e.v>0);
+  // North manual sellout is weekly and only spread evenly across days, so it can't identify a real best/worst day.
+  const _daySrcRaw = D.dailySys || D.dailyAll;
+  const dayEntries = Object.keys(_daySrcRaw).sort().map(d=>({d, v:(_daySrcRaw[d]||0)})).filter(e=>e.v>0);
   const bestDay  = dayEntries.reduce((b,e)=>e.v>b.v?e:b, dayEntries[0]||{d:'—',v:0});
   const worstDay = dayEntries.reduce((b,e)=>e.v<b.v?e:b, dayEntries[0]||{d:'—',v:0});
   // Last 3 days trend arrow — are the most recent days above or below the overall daily avg?
@@ -3872,7 +3876,7 @@ function renderGMD(){try{
         <div style="padding:18px 22px;border-right:1px solid var(--bdr)">
           <div style="font-family:var(--fm);font-size:9px;letter-spacing:2px;color:var(--dim);font-weight:700;text-transform:uppercase;margin-bottom:8px">Best Day</div>
           <div style="font-family:var(--fn);font-size:22px;font-weight:800;color:var(--grn)">${fm(bestDay.v)}</div>
-          <div style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700;margin-top:5px">${bestDay.d||'—'}</div>
+          <div style="font-family:var(--fm);font-size:10px;color:var(--dim);font-weight:700;margin-top:5px">${bestDay.d||'—'}${D.dailySys?' · excl. North manual':''}</div>
         </div>
         <div style="padding:18px 22px">
           <div style="font-family:var(--fm);font-size:9px;letter-spacing:2px;color:var(--dim);font-weight:700;text-transform:uppercase;margin-bottom:8px">Rev / Productive Rep / Day</div>
